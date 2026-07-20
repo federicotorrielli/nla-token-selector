@@ -27,28 +27,34 @@ that the other engines and the bridge scripts import.
 **Bridge pipeline** (does a cheap signal predict where the NLA lands on-task?),
 run in this order:
 
-1. `bridge_extract_activations.py` / `bridge_extract_opi.py` /
-   `bridge_extract_liars.py` — one per benchmark: forward the base model, capture
-   the NLA-layer activation, the ground-truth span label, and the cheap signals
-   into a corpus parquet.
+1. `bridge_extract_*` — one per benchmark: forward the base model, capture the
+   NLA-layer activation, the ground-truth label, and the cheap signals into a
+   corpus parquet. `bridge_extract_activations.py` (27 hand cases),
+   `bridge_extract_opi.py` (OPI input span), `bridge_extract_liars.py` (Liars'
+   responses), `bridge_extract_tt.py` (Tensor Trust: generate a base-model reply,
+   probe the response), `bridge_extract_taboo.py` (taboo: base + LoRA adapter,
+   generate hints, probe the response). The three response-side extractors share
+   `_response_extract.py` (generate → teacher-forced forward → per-token signals).
 2. `bridge_run_nla.py` — greedy NLA decode at each token, via its AV SGLang server.
 3. `bridge_judge_ontask.py --judge` — ask the judge (DeepSeek-V4-Flash) whether
-   each explanation is on-task; `--analyze` for a quick look.
-4. `bridge_report.py --kind {hand,opi,liars}` — the effect-size tables
-   (Q1 localization, Q2 prediction) with clustered-bootstrap intervals, controls,
-   and FDR, written to `findings/token-selector/bridge-*.md`.
+   each explanation is on-task (taboo: whether it reveals the secret word).
+4. `bridge_report.py --kind {hand,opi,liars,tt,taboo}` — full per-signal Q1/Q2
+   tables (best-for-task bolded) with clustered-bootstrap intervals, controls, and
+   FDR, written to `findings/token-selector/bridge-*.md`.
 5. `make_csvs.py` — export the tidy per-token CSVs to `paper_results/bridge/`.
 
 **Orchestration** (GPU-phased, resumable; one heavy model on the GPU at a time):
 
-- `run_bridge_all.sh` (hand cases), `run_bridge_opi.sh` (injection),
-  `run_bridge_liars.sh` (deception) — drive extract → NLA → judge across models.
+- `run_bridge_all.sh` (hand), `run_bridge_opi.sh` (OPI), `run_bridge_liars.sh`
+  (Liars'), `run_bridge_tt.sh` (Tensor Trust), `run_bridge_taboo.sh` (taboo) —
+  drive extract → NLA → judge across models.
 - `launch_sglang.sh` — the SGLang launcher they call. Set `PENV` to a conda env
   prefix or activate one first.
 
-**Data** (`data/`): `token_selector_cases.json` (the 27 authored cases),
-`injection_cases.jsonl` (built OPI cases), `build_injection_cases.py` (rebuilds
-the latter from an OpenPromptInjection clone).
+**Data** (`data/`): `token_selector_cases.json` (27 authored cases),
+`injection_cases.jsonl` + `build_injection_cases.py` (OPI),
+`build_tensortrust_cases.py` (Tensor Trust hijacking, 776×2 variants),
+`taboo.py` (taboo adapter registry + the four elicitation prompts).
 
 ## Reproduce
 
@@ -56,12 +62,12 @@ the latter from an OpenPromptInjection clone).
 # activate the env (needs torch + sglang + the park models cached), then:
 PENV=/path/to/conda/env   # or activate it and skip this
 
-bash selector/run_bridge_opi.sh      # injection, all models
-bash selector/run_bridge_liars.sh    # deception, on-policy models
-bash selector/run_bridge_all.sh      # 27 authored cases
+bash selector/run_bridge_opi.sh      # injection (OPI), all models
+bash selector/run_bridge_tt.sh       # injection (Tensor Trust), all models
+bash selector/run_bridge_liars.sh    # deception (Liars'), on-policy models
+bash selector/run_bridge_taboo.sh    # deception (taboo), all models × moon/ship/snow
 
-python selector/bridge_report.py --kind opi
-python selector/bridge_report.py --kind liars
+for k in opi tt liars taboo; do python selector/bridge_report.py --kind $k; done
 python selector/make_csvs.py
 ```
 

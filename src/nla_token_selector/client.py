@@ -141,7 +141,7 @@ class NLAClientLite:
         if self._act_index is None:
             self._act_index = {
                 int(pid): np.asarray(act, dtype=np.float32)
-                for pid, act in zip(self.corpus["position_id"], self.corpus["activation"].to_list())
+                for pid, act in zip(self.corpus["position_id"], self.corpus["activation"].to_list(), strict=True)
             }
         v = self._act_index.get(position_id)
         assert v is not None, f"no corpus row for position_id={position_id}."
@@ -495,7 +495,7 @@ class NLAClientLite:
         token_ids = [int(tok.encode(" " + lab, add_special_tokens=False)[0]) for lab in labels]
         assert len(set(token_ids)) == len(labels), (
             f"labels share a first token under this model's tokenizer "
-            f"({dict(zip(labels, token_ids))}) — pick single-token-distinct labels."
+            f"({dict(zip(labels, token_ids, strict=True))}) — pick single-token-distinct labels."
         )
 
         prefix_embeds = self._build_multi_turn_embeds(
@@ -553,7 +553,7 @@ class NLAClientLite:
         token_ids = [int(tok.encode(" " + lab, add_special_tokens=False)[0]) for lab in labels]
         assert len(set(token_ids)) == len(labels), (
             f"labels share a first token under this model's tokenizer "
-            f"({dict(zip(labels, token_ids))}) — pick single-token-distinct labels."
+            f"({dict(zip(labels, token_ids, strict=True))}) — pick single-token-distinct labels."
         )
         payloads = self._post_generate_batch(
             self._build_batch_embeds(items),

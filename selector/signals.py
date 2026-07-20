@@ -50,7 +50,7 @@ Usage:
     # offline math + alignment self-test (no GPU, no model, no network):
     python scripts/token_selector/signals.py --selftest
 
-    # real run on the B200 (conda env `pao`, workdir /work/calibrated_nla):
+    # real run on the B200 (conda env `pao`, workdir /work/nla_token_selector):
     python scripts/token_selector/signals.py \
         --model Qwen/Qwen2.5-7B-Instruct \
         --cases scripts/token_selector/data/token_selector_cases.json \

@@ -20,6 +20,12 @@ SIG = {  # experiment -> (shorts, signals-source template, join key, signal cols
     "liars":(["l70", "g27"], "liars_{s}_corpus.parquet", ["position_id"],
              ["surprisal", "entropy", "varentropy", "resid_jump",
               "lookback_ratio", "sink_drain", "head_disagreement"]),
+    "tt":   (["q7", "g12", "g27", "l70"], "tt_{s}_corpus.parquet", ["position_id"],
+             ["surprisal", "entropy", "varentropy", "resid_jump",
+              "lookback_ratio", "sink_drain", "head_disagreement"]),
+    "taboo":(["q7", "g12", "g27", "l70"], "taboo_{s}_corpus.parquet", ["position_id"],
+             ["surprisal", "entropy", "varentropy", "resid_jump",
+              "lookback_ratio", "sink_drain", "head_disagreement"]),
 }
 
 for kind, (shorts, tmpl, key, cols) in SIG.items():

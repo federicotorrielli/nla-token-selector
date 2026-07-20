@@ -33,8 +33,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from nla_token_selector.layers import _resolve_layer_module
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nla_token_selector.layers import _resolve_layer_module  # noqa: E402
 from signals import _assistant_token_labels, _build_ids, load_cases  # noqa: E402
 
 

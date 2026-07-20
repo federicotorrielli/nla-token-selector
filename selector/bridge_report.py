@@ -59,6 +59,26 @@ KINDS = {
         "primaries": ("head_disagreement",),  # kl needs a reference we lack here
         "title": "The bridge on real lies (Liars' Bench, on-policy)",
     },
+    "tt": {  # Tensor Trust hijacking, response tokens (attack vs access_code variant)
+        "models": _FOUR, "ontask": "results/bridge/tt_{short}_ontask.parquet",
+        "signals_from": "results/bridge/tt_{short}_corpus.parquet", "join": ["position_id"],
+        "signals": ["surprisal", "entropy", "varentropy", "resid_jump",
+                    "lookback_ratio", "sink_drain", "head_disagreement"],
+        "blind": {"surprisal", "entropy", "varentropy", "resid_jump",
+                  "lookback_ratio", "sink_drain", "head_disagreement"},
+        "primaries": ("head_disagreement",),  # injection primary, pre-specified
+        "title": "The bridge on Tensor Trust (prompt hijacking, response side)",
+    },
+    "taboo": {  # taboo organisms, response tokens; on-task = NLA reveals the secret word
+        "models": _FOUR, "ontask": "results/bridge/taboo_{short}_ontask.parquet",
+        "signals_from": "results/bridge/taboo_{short}_corpus.parquet", "join": ["position_id"],
+        "signals": ["surprisal", "entropy", "varentropy", "resid_jump",
+                    "lookback_ratio", "sink_drain", "head_disagreement"],
+        "blind": {"surprisal", "entropy", "varentropy", "resid_jump",
+                  "lookback_ratio", "sink_drain", "head_disagreement"},
+        "primaries": (),  # secret-word setting is new: all exploratory
+        "title": "The bridge on taboo organisms (secret word, response side)",
+    },
 }
 
 
@@ -232,31 +252,49 @@ def main(argv=None) -> int:
     L.append("")
 
     L.append("## Q2 — which cheap pre-pass signal predicts where the NLA is on-task?\n")
-    L.append("AUROC of each signal vs the judge's on-task label, with a case-cluster "
-             "bootstrap 95% interval. `*` = blind (one pass, no counterfactual). "
-             "`†` = passes Benjamini-Hochberg FDR at q=0.05 over the exploratory "
-             "family; the pre-specified primaries (`head_disagreement`, `kl`) are "
-             "confirmatory and shown without penalty. Base rate = share of on-task "
-             "tokens. Two controls per cell: a random-normal score and the "
-             "top-signal AUROC under label permutation both sit at ~0.5, confirming "
-             "the machinery invents no signal.\n")
+    L.append("Full table: AUROC of **every** signal vs the judge's on-task label, one row "
+             "per signal, one column per model, with a case-cluster bootstrap 95% interval. "
+             "The **best signal for the task is bolded** per model. `*` = blind (one pass, "
+             "no counterfactual). `†` = passes Benjamini-Hochberg FDR at q=0.05 over the "
+             "exploratory family; the pre-specified primaries are confirmatory and shown "
+             "without penalty. The last two rows give the on-task base rate and two controls "
+             "(a random-normal score, and the top signal's AUROC under label permutation), "
+             "both of which sit at ~0.5 when the machinery is honest.\n")
     q2_modes = [*modes, "pooled"] if len(modes) > 1 else modes
     for mode in q2_modes:
         L.append(f"### {mode_disp.get(mode, mode)}\n")
-        L.append("| model | base rate | top signals: AUROC [95% CI] | controls (rand / perm) |")
-        L.append("|---|---|---|---|")
+        # collect per-model results, then emit a signal x model matrix
+        per_model = {}
         for _s, _t, disp, df in have:
-            scored, base, controls = _q2(df, mode, SIGNALS, PRIMARIES)
-            if scored is None:
-                L.append(f"| {disp} | — | (on-task all one class) | — |")
+            per_model[disp] = _q2(df, mode, SIGNALS, PRIMARIES)
+        cols = [disp for _s, _t, disp, _df in have if per_model[disp][0] is not None]
+        if not cols:
+            L.append("_(on-task all one class for every model; no ranking)_\n")
+            continue
+        # best-for-task signal per model = strongest separation from 0.5
+        best = {c: max(per_model[c][0], key=lambda r: abs(r["auroc"] - 0.5))["sig"] for c in cols}
+        by_sig = {c: {r["sig"]: r for r in per_model[c][0]} for c in cols}
+        L.append("| signal | " + " | ".join(cols) + " |")
+        L.append("|" + "---|" * (len(cols) + 1))
+        for sig in SIGNALS:
+            if not any(sig in by_sig[c] for c in cols):
                 continue
             cells = []
-            for r in scored[:5]:
-                mark = "*" if r["sig"] in BLIND else ""
+            for c in cols:
+                r = by_sig[c].get(sig)
+                if r is None:
+                    cells.append("—")
+                    continue
+                mark = "*" if sig in BLIND else ""
                 fdr = "†" if r.get("fdr") else ""
-                cells.append(f"{r['sig']}{mark}{fdr}={r['auroc']:.3f} [{r['lo']:.2f},{r['hi']:.2f}]")
-            ctl = f"{controls['random']:.2f} / 0.5±{controls['perm_top_meandev']:.2f}"
-            L.append(f"| {disp} | {base:.2f} | {'  '.join(cells)} | {ctl} |")
+                txt = f"{r['auroc']:.3f} [{r['lo']:.2f},{r['hi']:.2f}]{mark}{fdr}"
+                cells.append(f"**{txt}**" if best[c] == sig else txt)
+            L.append(f"| `{sig}` | " + " | ".join(cells) + " |")
+        L.append("| _base rate_ | "
+                 + " | ".join(f"{per_model[c][1]:.2f}" for c in cols) + " |")
+        L.append("| _control rand / perm_ | "
+                 + " | ".join(f"{per_model[c][2]['random']:.2f} / "
+                              f"0.5±{per_model[c][2]['perm_top_meandev']:.2f}" for c in cols) + " |")
         L.append("")
 
     L.append("## Headline: the number\n")
