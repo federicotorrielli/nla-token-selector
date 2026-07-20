@@ -1,0 +1,11 @@
+# Exp A scorecard on Q7 — plan §4.2.
+# Layers on top of configs/base.yaml; only carries experiment-level knobs.
+# The model registry is in base.yaml; this YAML just pins which model is active.
+
+experiment:
+  model_short: q7
+  n_positions: 6000
+  msa_k: 20
+  sts_window: 10
+  temperature: 1.0
+  code_version: 1

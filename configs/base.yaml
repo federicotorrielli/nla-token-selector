@@ -1,0 +1,68 @@
+# Base configuration — shared across all experiments.
+# Per-experiment YAMLs in configs/experiments/ layer on top via pydantic-settings.
+#
+# Concrete fields are committed once docs/pydantic_settings.md is filled and
+# src/calibrated_nla/settings.py lands (plan §5.7).
+
+paths:
+  results_root: ~/LocalProjects/nla_token_selector/results
+  corpus_parquet: ~/LocalProjects/nla_token_selector/results/corpus/fineweb_6k.parquet
+
+# Per-model registry — AV+AR repo IDs, layer, d_model, SGLang URL, judge config.
+# Filled per plan §4.1 table.
+models:
+  q7:
+    short: q7
+    base_model: Qwen/Qwen2.5-7B-Instruct
+    av_repo: kitft/nla-qwen2.5-7b-L20-av
+    ar_repo: kitft/nla-qwen2.5-7b-L20-ar
+    layer: 20
+    d_model: 3584
+    sglang_url: http://localhost:30000
+    judge:
+      primary_url: http://localhost:31000
+      primary_model_id: meta-llama/Llama-3.3-70B-Instruct
+      secondary_url: http://localhost:31001
+      secondary_model_id: deepseek-ai/DeepSeek-V3
+
+  g12:
+    short: g12
+    base_model: google/gemma-3-12b-it
+    av_repo: kitft/nla-gemma3-12b-L32-av
+    ar_repo: kitft/nla-gemma3-12b-L32-ar
+    layer: 32
+    d_model: 3840
+    sglang_url: http://localhost:30001
+    judge:
+      primary_url: http://localhost:31000
+      primary_model_id: meta-llama/Llama-3.3-70B-Instruct
+      secondary_url: http://localhost:31002
+      secondary_model_id: Qwen/Qwen2.5-72B-Instruct
+
+  g27:
+    short: g27
+    base_model: google/gemma-3-27b-it
+    av_repo: kitft/nla-gemma3-27b-L41-av
+    ar_repo: kitft/nla-gemma3-27b-L41-ar
+    layer: 41
+    d_model: 5376
+    sglang_url: http://localhost:30002
+    judge:
+      primary_url: http://localhost:31000
+      primary_model_id: meta-llama/Llama-3.3-70B-Instruct
+      secondary_url: http://localhost:31002
+      secondary_model_id: Qwen/Qwen2.5-72B-Instruct
+
+  l70:
+    short: l70
+    base_model: meta-llama/Llama-3.3-70B-Instruct
+    av_repo: kitft/Llama-3.3-70B-NLA-L53-av
+    ar_repo: kitft/Llama-3.3-70B-NLA-L53-ar
+    layer: 53
+    d_model: 8192
+    sglang_url: http://localhost:30003
+    judge:
+      primary_url: http://localhost:31002
+      primary_model_id: Qwen/Qwen2.5-72B-Instruct
+      secondary_url: http://localhost:31001
+      secondary_model_id: deepseek-ai/DeepSeek-V3

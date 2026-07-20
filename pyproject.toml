@@ -1,0 +1,50 @@
+[project]
+name = "nla-token-selector"
+version = "0.1.0"
+description = "Which token deserves an NLA explanation: cheap pre-pass signals for injection and deception."
+authors = [{ name = "Federico Torrielli", email = "federico.torrielli@unito.it" }]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic-settings>=2.14.1",
+    "pyyaml>=6.0.3",
+    "httpx>=0.28.1",
+    "polars>=1.41.2",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1",
+    "pyarrow>=18.0.0",
+    "sentence-transformers>=5.6.0",
+    "torch>=2.6.0",
+    "transformers>=4.57.0",
+    "peft>=0.15.0",
+    "datasets>=3.6.0",
+    "huggingface-hub>=0.35.0",
+    "accelerate>=1.14.0",
+    "orjson>=3.11.9",
+    "rich>=15.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nla_token_selector"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["src/nla_token_selector/_nla_inference.py"]  # vendored 1:1, keep upstream
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.uv]
+prerelease = "allow"
