@@ -22,9 +22,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.parquet as pq
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "data"))
 from _response_extract import (  # noqa: E402
@@ -32,8 +29,9 @@ from _response_extract import (  # noqa: E402
     extract_rows,
     generate_reply,
     load_base,
+    load_resume,
     make_hook,
-    schema,
+    write_corpus,
 )
 from taboo import PROMPTS, WORDS, adapter_id, base_model  # noqa: E402
 
@@ -43,7 +41,8 @@ def run(args: argparse.Namespace) -> int:
 
     words = args.words or list(WORDS)
     base = base_model(args.short)
-    print(f"taboo {args.short}: base {base}, words {words}", flush=True)
+    out_rows, done, position_id = load_resume(args.out)
+    print(f"taboo {args.short}: base {base}, words {words} ({len(done)} cases cached)", flush=True)
 
     # plain base; hook the decoder layer BEFORE wrapping so it fires through any adapter
     model, tokenizer, device = load_base(base, args.dtype)
@@ -53,35 +52,38 @@ def run(args: argparse.Namespace) -> int:
     for w in words[1:]:
         peft.load_adapter(adapter_id(args.short, w), adapter_name=w)
 
-    out_rows = []
-    position_id = 0
+    n_done = 0
     for w in words:
         peft.set_adapter(w)
         for pj, prompt in enumerate(PROMPTS):
             for s in range(args.samples):
+                case_id = f"{w}__p{pj}__s{s}"
+                if case_id in done:
+                    continue
                 msgs = build_messages(tokenizer, None, prompt)
                 try:
                     reply = generate_reply(peft, tokenizer, device, msgs, args.max_new_tokens,
                                            do_sample=(s > 0), temperature=args.temperature)
                 except Exception as e:  # noqa: BLE001 — one bad case must not kill the run
-                    print(f"  gen fail {w} p{pj} s{s}: {e}", flush=True)
+                    print(f"  gen fail {case_id}: {e}", flush=True)
                     continue
                 if not reply:
                     continue
                 msgs = [*msgs, {"role": "assistant", "content": reply}]
                 rows, position_id = extract_rows(
                     peft, tokenizer, device, captured, msgs,
-                    case_id=f"{w}__p{pj}__s{s}", label=1, mode="taboo",
+                    case_id=case_id, label=1, mode="taboo",
                     d_model=args.d_model, tok_cap=args.tok_cap, attn_max_len=args.attn_max_len,
                     position_id=position_id)
                 out_rows.extend(rows)
+                n_done += 1
+                if n_done % args.checkpoint == 0:
+                    write_corpus(args.out, out_rows, args.d_model)
         print(f"  {w}: {len(out_rows)} tokens so far", flush=True)
     handle.remove()
 
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(pa.Table.from_pylist(out_rows, schema=schema(args.d_model)), out_path)
-    print(f"wrote {out_path}  ({len(out_rows)} response tokens over {len(words)} words)")
+    write_corpus(args.out, out_rows, args.d_model)
+    print(f"wrote {args.out}  ({len(out_rows)} response tokens over {len(words)} words)")
     return 0
 
 
@@ -97,6 +99,7 @@ def _parse_args(argv):
     p.add_argument("--max-new-tokens", type=int, default=48)
     p.add_argument("--tok-cap", type=int, default=30)
     p.add_argument("--attn-max-len", type=int, default=2600)
+    p.add_argument("--checkpoint", type=int, default=50, help="write parquet every N transcripts")
     p.add_argument("--out", default="results/bridge/taboo_q7_corpus.parquet")
     p.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16"])
     return p.parse_args(argv)

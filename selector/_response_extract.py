@@ -23,6 +23,34 @@ SIGNALS = ["surprisal", "entropy", "varentropy", "resid_jump",
            "lookback_ratio", "sink_drain", "head_disagreement"]
 
 
+def load_resume(out_path):
+    """Resume support: (existing_rows, done_case_ids, next_position_id). A killed
+    extract restarts from the last checkpoint instead of from zero."""
+    import polars as pl
+
+    p = Path(out_path)
+    if not p.exists():
+        return [], set(), 0
+    prev = pl.read_parquet(p)
+    rows = prev.to_dicts()
+    done = set(prev["case_id"].to_list())
+    nxt = (max(int(r["position_id"]) for r in rows) + 1) if rows else 0
+    return rows, done, nxt
+
+
+def write_corpus(out_path, rows, d_model):
+    """Atomic parquet write (tmp then replace), so a checkpoint can't truncate."""
+    import os
+
+    import pyarrow.parquet as pq
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_suffix(".tmp.parquet")
+    pq.write_table(pa.Table.from_pylist(rows, schema=schema(d_model)), tmp)
+    os.replace(tmp, out_path)
+
+
 def schema(d_model: int) -> pa.Schema:
     fields = [
         ("position_id", pa.uint64()),
@@ -77,13 +105,16 @@ def generate_reply(model, tokenizer, device, messages: list[dict], max_new_token
     per taboo prompt)."""
     import torch
 
-    ids = tokenizer.apply_chat_template(messages, add_generation_prompt=True,
-                                        return_tensors="pt").to(device)
+    # transformers 5.x apply_chat_template returns a BatchEncoding, not a tensor;
+    # generate(**enc) also passes the attention mask.
+    enc = tokenizer.apply_chat_template(messages, add_generation_prompt=True,
+                                        return_tensors="pt", return_dict=True).to(device)
+    n_in = enc["input_ids"].shape[1]
     kw = dict(max_new_tokens=max_new_tokens, pad_token_id=tokenizer.eos_token_id)
     kw.update(dict(do_sample=True, temperature=temperature) if do_sample else dict(do_sample=False))
     with torch.no_grad():
-        gen = model.generate(ids, **kw)
-    return tokenizer.decode(gen[0][ids.shape[1]:], skip_special_tokens=True).strip()
+        gen = model.generate(**enc, **kw)
+    return tokenizer.decode(gen[0][n_in:], skip_special_tokens=True).strip()
 
 
 def make_hook(model, layer: int):
