@@ -5,7 +5,7 @@
 # resumable. NCASES input-sampled cases per model (default: all).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
 PY=${PY:-python}
 cd "$ROOT" || exit 1
 mkdir -p results/bridge results/logs
