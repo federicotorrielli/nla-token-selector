@@ -1,4 +1,4 @@
-"""scripts/token_selector/bridge_report.py — assemble the bridge results file.
+"""selector/bridge_report.py — assemble the bridge results file.
 
 Reads every model's on-task judgements (results/bridge/<short>_ontask.parquet)
 and per-token cheap signals (results/token_selector_v2/<tag>/tokens.parquet),
@@ -9,7 +9,7 @@ model:
   Q2  Which cheap pre-pass signal best predicts where the NLA is on-task?
 
 Usage:
-    python scripts/token_selector/bridge_report.py --out findings/token-selector/bridge-nla-selection.md
+    python selector/bridge_report.py --out findings/token-selector/bridge-nla-selection.md
 """
 
 from __future__ import annotations

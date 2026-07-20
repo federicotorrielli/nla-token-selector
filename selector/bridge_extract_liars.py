@@ -1,4 +1,4 @@
-"""scripts/token_selector/bridge_extract_liars.py — bridge test on real lies.
+"""selector/bridge_extract_liars.py — bridge test on real lies.
 
 Liars' Bench deception, response side. For a balanced sample of on-policy
 transcripts (the base model probed is the one that generated the text), this
@@ -13,7 +13,7 @@ Sample size per class is set by the 95%-CI calculation in bridge-experiment-desi
 (1000 lying + 1000 honest per model gives a +/-0.03 interval).
 
 Usage:
-    python scripts/token_selector/bridge_extract_liars.py \
+    python selector/bridge_extract_liars.py \
         --base-model meta-llama/Llama-3.3-70B-Instruct --model-tag llama-v3.3-70b-instruct \
         --layer 53 --d-model 8192 --datasets instructed-deception insider-trading \
         --per-class 1000 --tok-cap 30 --out results/bridge/liars_l70_corpus.parquet

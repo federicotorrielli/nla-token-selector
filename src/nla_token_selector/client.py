@@ -114,11 +114,10 @@ class NLAClientLite:
     def ar(self) -> NLACritic:
         if self._ar is None:
             ckpt = _materialize_checkpoint(self.model.ar_repo)
-            # NLACritic defaults device="cpu"; on a B200 this means ARC's
-            # ~150k forward passes take ~22 min for n=100 (extrapolating to
-            # ~22 h at n=6000). Cuda forward is 10-50× faster — the AR's
-            # truncated K+1-layer stack is ~5-10 GB, well under any free
-            # headroom we'd have. `cuda` defaults to device 0.
+            # NLACritic defaults device="cpu"; on CPU ARC's ~150k forward passes
+            # take ~22 min for n=100 (extrapolating to ~22 h at n=6000). A CUDA
+            # forward is 10-50× faster — the AR's truncated K+1-layer stack is
+            # ~5-10 GB, well under typical GPU headroom. `cuda` defaults to device 0.
             ar_device = "cuda" if torch.cuda.is_available() else "cpu"
             self._ar = NLACritic(ckpt, device=ar_device)
         return self._ar

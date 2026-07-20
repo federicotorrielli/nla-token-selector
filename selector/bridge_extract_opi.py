@@ -1,4 +1,4 @@
-"""scripts/token_selector/bridge_extract_opi.py — bridge test on real injection (OPI).
+"""selector/bridge_extract_opi.py — bridge test on real injection (OPI).
 
 The 27 hand injection cases were wholly compromised (the whole reply executes the
 attack), so selection could not bite. OpenPromptInjection puts the injected
@@ -12,9 +12,9 @@ corpus parquet in the same shape bridge_run_nla.py reads, plus the signals for t
 analysis join.
 
 Usage:
-    python scripts/token_selector/bridge_extract_opi.py \
+    python selector/bridge_extract_opi.py \
         --base-model Qwen/Qwen2.5-7B-Instruct --layer 20 --d-model 3584 \
-        --cases scripts/token_selector/data/injection_cases.jsonl --max-cases 100 \
+        --cases selector/data/injection_cases.jsonl --max-cases 100 \
         --out results/bridge/opi_q7_corpus.parquet
 """
 

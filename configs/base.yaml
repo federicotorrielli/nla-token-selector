@@ -5,8 +5,8 @@
 # src/calibrated_nla/settings.py lands (plan §5.7).
 
 paths:
-  results_root: ~/LocalProjects/nla_token_selector/results
-  corpus_parquet: ~/LocalProjects/nla_token_selector/results/corpus/fineweb_6k.parquet
+  results_root: results
+  corpus_parquet: results/corpus/fineweb_6k.parquet
 
 # Per-model registry — AV+AR repo IDs, layer, d_model, SGLang URL, judge config.
 # Filled per plan §4.1 table.

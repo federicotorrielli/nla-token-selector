@@ -14,7 +14,7 @@ NLA will produce a task-relevant explanation.
 
 **Inference-only.** Nothing here trains a model or launches an inference server;
 it drives externally launched SGLang servers over HTTP and reads cached
-activations from disk. Spun out of `~/LocalProjects/calibrated_nla` (the per-claim
+activations from disk. Spun out of the calibrated-nla project (the per-claim
 calibration paper); this repo carries only the selector slice.
 
 Four open NLA targets by short id: `q7` (Qwen2.5-7B), `g12` (Gemma-3-12B), `g27`
@@ -57,8 +57,8 @@ four models** except Liars' Bench (on-policy, so l70 + g27 only).
 - `results/` gitignored; `paper_results/bridge/` holds the committed per-token CSVs;
   `findings/token-selector/` holds the result docs; `paper/` is the manuscript.
 - A "position_id" is a global flat token index into the extraction corpus.
-- Run on the SDU B200: `ssh ucloud@ssh.cloud.sdu.dk` (ephemeral port), env
-  `~/miniconda3/envs/pao`, workdir `/work/nla_token_selector`.
+- Runs need a machine with a GPU, the park models cached, and an externally
+  launched SGLang server (see `selector/launch_sglang.sh`).
 
 ## Style
 

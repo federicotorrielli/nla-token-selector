@@ -1,4 +1,4 @@
-"""scripts/token_selector/signals_deception.py — deception detection on Liars' Bench.
+"""selector/signals_deception.py — deception detection on Liars' Bench.
 
 The third threat for the token selector: hidden-goal / deception (the D3
 downstream). Liars' Bench (Kretschmar et al. 2026, arXiv:2511.16035) is an
@@ -21,8 +21,8 @@ Bench generators. gender-secret / soft-trigger are excluded (fine-tuned LoRA
 variants we do not have). transformers, not sglang, same as the sibling tests.
 
 Usage:
-    python scripts/token_selector/signals_deception.py --selftest
-    python scripts/token_selector/signals_deception.py \
+    python selector/signals_deception.py --selftest
+    python selector/signals_deception.py \
         --model meta-llama/Llama-3.3-70B-Instruct \
         --datasets harm-pressure-choice instructed-deception insider-trading \
         --out results/deception_liarsbench

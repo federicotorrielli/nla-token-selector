@@ -1,4 +1,4 @@
-"""scripts/token_selector/bridge_extract_activations.py — bridge test, phase 1.
+"""selector/bridge_extract_activations.py — bridge test, phase 1.
 
 The token selector asks "which token should I point the NLA at?". To answer it
 we need, for each token, both (a) the cheap pre-pass signals — already saved by
@@ -17,9 +17,9 @@ Same activation convention as scripts/pipeline/build_corpus.py: forward hook on
 stream the AV was trained on), bf16 forward, f32 storage.
 
 Usage:
-    python scripts/token_selector/bridge_extract_activations.py \
+    python selector/bridge_extract_activations.py \
         --base-model Qwen/Qwen2.5-7B-Instruct --layer 20 --d-model 3584 \
-        --cases scripts/token_selector/data/token_selector_cases.json \
+        --cases selector/data/token_selector_cases.json \
         --out results/bridge/q7_corpus.parquet
 """
 

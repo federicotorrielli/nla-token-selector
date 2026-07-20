@@ -34,7 +34,7 @@ for M in $MODELS; do
   # phase 1: extract activations (base model, no server)
   if [ -f "$CORP" ]; then echo "  [p1] $M cached"; else
     echo "  [p1] extract $M $(date +%H:%M:%S)"
-    $PY scripts/token_selector/bridge_extract_activations.py \
+    $PY selector/bridge_extract_activations.py \
       --base-model "${BASE[$M]}" --layer "${LAYER[$M]}" --d-model "${DMODEL[$M]}" \
       --out "$CORP" > results/logs/bridge_p1_$M.log 2>&1 \
       || { echo "  [p1] FAIL $M"; tail -5 results/logs/bridge_p1_$M.log; continue; }
@@ -48,7 +48,7 @@ for M in $MODELS; do
       > results/logs/bridge_av_$M.log 2>&1 &
     AVPID=$!
     if wait_health "$P" "AV:$M" results/logs/bridge_av_$M.log; then
-      $PY scripts/token_selector/bridge_run_nla.py --model-short "$M" --corpus "$CORP" \
+      $PY selector/bridge_run_nla.py --model-short "$M" --corpus "$CORP" \
         --out "$EXPL" --sglang-url "http://127.0.0.1:$P" --batch 16 \
         > results/logs/bridge_p2_$M.log 2>&1 || { echo "  [p2] decode FAIL $M"; tail -6 results/logs/bridge_p2_$M.log; }
     fi
@@ -71,7 +71,7 @@ if wait_health 31000 "judge" results/logs/bridge_judge.log; then
     [ -f "$EXPL" ] || { echo "  no explanations for $M"; continue; }
     if [ -f "$OT" ]; then echo "  [judge] $M cached"; continue; fi
     echo "  [judge] $M $(date +%H:%M:%S)"
-    $PY scripts/token_selector/bridge_judge_ontask.py --judge --explanations "$EXPL" \
+    $PY selector/bridge_judge_ontask.py --judge --explanations "$EXPL" \
       --judge-url http://127.0.0.1:31000 --judge-model nvidia/DeepSeek-V4-Flash-NVFP4 \
       --out "$OT" > results/logs/bridge_judge_$M.log 2>&1 || { echo "  [judge] FAIL $M"; tail -6 results/logs/bridge_judge_$M.log; }
   done

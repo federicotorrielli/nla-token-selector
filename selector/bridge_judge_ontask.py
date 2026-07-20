@@ -1,4 +1,4 @@
-"""scripts/token_selector/bridge_judge_ontask.py — bridge test, phase 3.
+"""selector/bridge_judge_ontask.py — bridge test, phase 3.
 
 Ask a judge whether each NLA explanation is *on-task* for its case's threat
 (injection: is the model following an instruction from the input? eval: is the
@@ -15,11 +15,11 @@ model aware it is being tested?), then answer the two bridge questions:
 so the (GPU-served) judging and the (CPU) analysis can run in separate phases.
 
 Usage:
-    python scripts/token_selector/bridge_judge_ontask.py --judge \
+    python selector/bridge_judge_ontask.py --judge \
         --explanations results/bridge/q7_explanations.parquet \
         --judge-url http://127.0.0.1:31000 --judge-model nvidia/DeepSeek-V4-Flash-NVFP4 \
         --out results/bridge/q7_ontask.parquet
-    python scripts/token_selector/bridge_judge_ontask.py --analyze \
+    python selector/bridge_judge_ontask.py --analyze \
         --ontask results/bridge/q7_ontask.parquet \
         --tokens results/token_selector_v2/Qwen2.5-7B-Instruct/tokens.parquet
 """

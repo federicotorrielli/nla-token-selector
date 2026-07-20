@@ -1,4 +1,4 @@
-"""scripts/token_selector/signals.py — information-theory token selector, controlled test.
+"""selector/signals.py — information-theory token selector, controlled test.
 
 Validates the *token selector* from
 `findings/2026-06-19_information-theory-token-selection.md`: the function that
@@ -40,20 +40,19 @@ signals need the FULL-vocabulary next-token distribution at each position
 top-k logprobs for autoregressive models (`return_full_logits` is hardcoded to
 diffusion LMs only; `SamplingParams` has no full-distribution field), so those
 quantities would be unreliable top-k approximations. A teacher-forced
-transformers forward returns `logits[seq, vocab]` directly. This is the exact
-scope justification as `scripts/pipeline/build_corpus.py` — one-shot research code in
-`scripts/`, outside the no-HF-in-`src/` rule (`tests/test_no_hf_elsewhere.py`).
-When this graduates to real (generated) transcripts, sglang does the generation;
-transformers still does the full-vocab scoring.
+transformers forward returns `logits[seq, vocab]` directly. So the signal
+engines under `selector/` use transformers for scoring, while sglang still does
+all generation (the AV decode). When this graduates to real (generated)
+transcripts, sglang generates and transformers does the full-vocab scoring.
 
 Usage:
     # offline math + alignment self-test (no GPU, no model, no network):
-    python scripts/token_selector/signals.py --selftest
+    python selector/signals.py --selftest
 
-    # real run on the B200 (conda env `pao`, workdir /work/nla_token_selector):
-    python scripts/token_selector/signals.py \
+    # real run (needs the base model + a GPU):
+    python selector/signals.py \
         --model Qwen/Qwen2.5-7B-Instruct \
-        --cases scripts/token_selector/data/token_selector_cases.json \
+        --cases selector/data/token_selector_cases.json \
         --out results/token_selector
 """
 
@@ -774,7 +773,7 @@ def run(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # The attention-rollout baseline needs attention weights, which sdpa does not
-    # return; force eager when it is enabled. eager is safe on B200 (the broken
+    # return; force eager when it is enabled. eager is safe here (the broken
     # path is xformers, not eager) and our sequences are short.
     want_attn = not args.no_attn_baseline
     attn_impl = "eager" if want_attn else args.attn
@@ -855,7 +854,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16"])
     p.add_argument("--attn", default="sdpa",
                    help="attn_implementation when the attn-rollout baseline is off "
-                        "(sdpa is safe on B200; baseline forces eager)")
+                        "(sdpa is safe here; baseline forces eager)")
     p.add_argument("--no-attn-baseline", action="store_true",
                    help="skip the attention-rollout baseline (keeps attn=sdpa, faster)")
     p.add_argument("--n-boot", type=int, default=2000)

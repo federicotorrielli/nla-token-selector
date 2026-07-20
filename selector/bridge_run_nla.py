@@ -1,4 +1,4 @@
-"""scripts/token_selector/bridge_run_nla.py — bridge test, phase 2.
+"""selector/bridge_run_nla.py — bridge test, phase 2.
 
 Run the NLA (the AV decoder) at every token's activation from the phase-1 corpus,
 saving one explanation per token. Uses the project's NLAClientLite, pointed at
@@ -6,10 +6,10 @@ our custom corpus and at a running AV SGLang server. Writes incrementally and
 resumes, so a killed run continues.
 
 Needs an SGLang server serving the AV checkpoint (e.g. kitft/nla-qwen2.5-7b-L20-av)
-at --sglang-url. Run on the B200 with the `pao` env.
+at --sglang-url.
 
 Usage:
-    python scripts/token_selector/bridge_run_nla.py \
+    python selector/bridge_run_nla.py \
         --corpus results/bridge/q7_corpus.parquet \
         --sglang-url http://localhost:30000 \
         --out results/bridge/q7_explanations.parquet

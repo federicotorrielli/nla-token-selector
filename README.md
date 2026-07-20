@@ -7,7 +7,7 @@ cannot explain every position in a long transcript, so this project asks whether
 a cheap number, computed in one ordinary forward pass before any NLA call, picks
 the positions where the NLA lands on a task-relevant explanation.
 
-Spun out of the per-claim calibration project (`~/LocalProjects/calibrated_nla`).
+Spun out of the per-claim calibration project (calibrated-nla).
 Inference-only: it drives externally launched SGLang servers over HTTP and reads
 cached activations from disk.
 

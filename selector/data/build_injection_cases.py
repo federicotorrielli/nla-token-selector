@@ -1,4 +1,4 @@
-"""scripts/token_selector/data/build_injection_cases.py — real injection benchmark cases.
+"""selector/data/build_injection_cases.py — real injection benchmark cases.
 
 Replaces the 27 hand-authored token-selector cases with span-localized injection
 cases from OpenPromptInjection (Liu et al., USENIX Security 2024,
@@ -26,12 +26,12 @@ scoring is in signals.py. OPI uses CWD-relative `./data` and
 
 Usage:
     # offline self-test of the span-recovery logic (no OPI, no network):
-    python scripts/token_selector/data/build_injection_cases.py --selftest
+    python selector/data/build_injection_cases.py --selftest
 
     # build (needs an OpenPromptInjection clone + its HF datasets):
-    python scripts/token_selector/data/build_injection_cases.py \
-        --opi-root /work/Open-Prompt-Injection \
-        --out scripts/token_selector/data/injection_cases.jsonl \
+    python selector/data/build_injection_cases.py \
+        --opi-root /path/to/Open-Prompt-Injection \
+        --out selector/data/injection_cases.jsonl \
         --n-per-cell 40
 """
 

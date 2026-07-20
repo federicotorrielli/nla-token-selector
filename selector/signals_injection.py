@@ -1,4 +1,4 @@
-"""scripts/token_selector/signals_injection.py — input-span localization.
+"""selector/signals_injection.py — input-span localization.
 
 The PromptLocate-comparable injection benchmark (the headline). Given an injected
 data prompt, localize the *injected span in the input* — the task TracLLM (Wang
@@ -32,10 +32,10 @@ baseline does one short greedy generation per case, then scores it under ablated
 prompts (no generation in the inner loop).
 
 Usage:
-    python scripts/token_selector/signals_injection.py --selftest
-    python scripts/token_selector/signals_injection.py \
+    python selector/signals_injection.py --selftest
+    python selector/signals_injection.py \
         --model Qwen/Qwen2.5-7B-Instruct \
-        --cases scripts/token_selector/data/injection_cases.jsonl \
+        --cases selector/data/injection_cases.jsonl \
         --out results/injection_localization --max-cases 200
 """
 
