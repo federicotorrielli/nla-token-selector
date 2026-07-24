@@ -43,8 +43,10 @@ KINDS = {
     "opi": {  # OpenPromptInjection input tokens, signals in the opi corpus
         "models": _FOUR, "ontask": "results/bridge/opi_{short}_ontask.parquet",
         "signals_from": "results/bridge/opi_{short}_signals.parquet", "join": ["position_id"],
-        "signals": ["in_surprisal", "in_entropy", "in_attention"],
-        "blind": {"in_surprisal", "in_entropy", "in_attention"},
+        "signals": ["surprisal", "entropy", "varentropy", "resid_jump",
+                    "lookback_ratio", "sink_drain", "head_disagreement", "attn_rollout"],
+        "blind": {"surprisal", "entropy", "varentropy", "resid_jump",
+                  "lookback_ratio", "sink_drain", "head_disagreement"},  # attn_rollout is the expensive baseline
         "primaries": (),  # input-token setting is new: all exploratory
         "title": "The bridge on real injection (OpenPromptInjection, all 800 cases)",
     },
