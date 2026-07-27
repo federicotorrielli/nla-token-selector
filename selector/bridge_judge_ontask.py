@@ -82,45 +82,89 @@ def _judge_one(client, url, model, explanation, question) -> int:
     return 1 if ans.startswith("y") else 0
 
 
-def do_judge(args) -> int:
-    import httpx
+def _judge_frame(expl, done: set[int], outp: Path, args, client, pool) -> int:
+    """Judge one explanations frame into `outp` (atomic, resumable). Returns
+    the number of rows judged."""
+    import os
+
     import polars as pl
 
-    expl = pl.read_parquet(args.explanations)
-    outp = Path(args.out)
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    rows: list[dict] = []
-    done: set[int] = set()
-    if outp.exists():
-        prev = pl.read_parquet(outp)
-        rows = prev.to_dicts()
-        done = {int(p) for p in prev["position_id"].to_list()}
-
+    rows: list[dict] = pl.read_parquet(outp).to_dicts() if outp.exists() else []
     todo = [r for r in expl.iter_rows(named=True) if int(r["position_id"]) not in done]
-    print(f"judging {len(todo)} explanations ({len(done)} cached), {args.workers} workers",
-          flush=True)
+    if not todo:
+        return 0
+    print(f"judging {len(todo)} explanations ({len(done)} cached), "
+          f"{args.workers} workers", flush=True)
 
-    # Concurrent requests: SGLang batches them server-side, so many in-flight
-    # calls are ~10-20x faster than sequential. Chunk so we can checkpoint.
-    from concurrent.futures import ThreadPoolExecutor
-
-    def judge_row(client, r):
+    def judge_row(r):
         on = _judge_one(client, args.judge_url, args.judge_model, r["explanation"],
                         _question(r["mode"], r["case_id"]))
         return {"position_id": int(r["position_id"]), "case_id": r["case_id"],
                 "mode": r["mode"], "tok_idx": int(r["tok_idx"]),
                 "label": int(r["label"]), "on_task": on}
 
-    with httpx.Client(timeout=120.0, limits=httpx.Limits(max_connections=args.workers + 8)) as client, \
+    def write():
+        tmp = outp.with_name(outp.name + ".tmp")
+        pl.DataFrame(rows).write_parquet(tmp)
+        os.replace(tmp, outp)
+
+    chunk = max(args.workers * 8, 256)
+    for i in range(0, len(todo), chunk):
+        batch = todo[i : i + chunk]
+        rows.extend(pool.map(judge_row, batch))
+        write()
+        print(f"  {min(i + chunk, len(todo))}/{len(todo)}", flush=True)
+    write()
+    return len(todo)
+
+
+def do_judge(args) -> int:
+    # Concurrent requests: SGLang batches them server-side, so many in-flight
+    # calls are ~10-20x faster than sequential. Chunk so we can checkpoint.
+    from concurrent.futures import ThreadPoolExecutor
+
+    import httpx
+    import polars as pl
+
+    expl_path = Path(args.explanations)
+    with httpx.Client(timeout=120.0,
+                      limits=httpx.Limits(max_connections=args.workers + 8)) as client, \
             ThreadPoolExecutor(max_workers=args.workers) as pool:
-        chunk = max(args.workers * 8, 256)
-        for i in range(0, len(todo), chunk):
-            batch = todo[i : i + chunk]
-            rows.extend(pool.map(lambda r: judge_row(client, r), batch))
-            pl.DataFrame(rows).write_parquet(outp)
-            print(f"  {min(i + chunk, len(todo))}/{len(todo)}", flush=True)
-    pl.DataFrame(rows).write_parquet(outp)
-    print(f"wrote {outp} ({len(rows)} judged)")
+        if expl_path.is_dir():
+            # All-token mode: one ontask shard per explanation shard; any
+            # position already present in the output directory (including the
+            # seed_from_cache shard) is skipped.
+            out_dir = Path(args.out)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            done: set[int] = set()
+            for f in out_dir.glob("*.parquet"):
+                done |= {int(p) for p in
+                         pl.scan_parquet(str(f)).select("position_id").collect()
+                         ["position_id"].to_list()}
+            n = 0
+            for shard in sorted(expl_path.glob("*.parquet")):
+                # shard-cache.parquet is usually pre-judged via the seeded
+                # ontask shard (its positions are then in `done`); if not, it
+                # is judged into its own file so the seed is never clobbered.
+                out_name = ("judged-shard-cache.parquet"
+                            if shard.name == "shard-cache.parquet" else shard.name)
+                expl = pl.read_parquet(shard)
+                n_new = _judge_frame(expl, done, out_dir / out_name, args,
+                                     client, pool)
+                done |= {int(p) for p in expl["position_id"].to_list()}
+                n += n_new
+            print(f"wrote {out_dir} ({n} newly judged)")
+            return 0
+
+        expl = pl.read_parquet(expl_path)
+        outp = Path(args.out)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        done = set()
+        if outp.exists():
+            done = {int(p) for p in
+                    pl.read_parquet(outp)["position_id"].to_list()}
+        n = _judge_frame(expl, done, outp, args, client, pool)
+        print(f"wrote {outp} ({n} newly judged)")
     return 0
 
 

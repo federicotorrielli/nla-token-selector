@@ -84,23 +84,45 @@ KINDS = {
 }
 
 
+def _scan(path: Path):
+    """Lazy frame over a parquet file OR a directory of shards; None if absent.
+    Lazy so all-token corpora never materialize their activation column."""
+    if path.is_dir():
+        shards = sorted(path.glob("*.parquet"))
+        return pl.scan_parquet([str(f) for f in shards]) if shards else None
+    return pl.scan_parquet(str(path)) if path.exists() else None
+
+
+def _cols(lf) -> list[str]:
+    try:
+        return lf.collect_schema().names()
+    except AttributeError:  # older polars
+        return lf.columns
+
+
 def _load(cfg: dict, short: str, tag: str):
-    ot = Path(cfg["ontask"].format(short=short))
-    if not ot.exists():
+    o_lf = _scan(Path(cfg["ontask"].format(short=short)))
+    if o_lf is None:
         return None
-    o = pl.read_parquet(ot)
+    o = o_lf.collect()
     if cfg["signals_from"] == "tokens":
         src = Path(f"results/token_selector_v2/{tag}/tokens.parquet")
     else:
         src = Path(cfg["signals_from"].format(short=short))
-    if not src.exists():
+    t_lf = _scan(src)
+    if t_lf is None:
         return None
-    t = pl.read_parquet(src)
-    keep = [*cfg["join"], *[c for c in cfg["signals"] if c in t.columns]]
+    have = _cols(t_lf)
+    keep = [*cfg["join"], *[c for c in cfg["signals"] if c in have]]
     # position_id is already in the ontask frame; drop it from the right side dup
     if cfg["join"] == ["position_id"]:
-        keep = ["position_id", *[c for c in cfg["signals"] if c in t.columns]]
-    return o.join(t.select(keep), on=cfg["join"], how="left")
+        keep = ["position_id", *[c for c in cfg["signals"] if c in have]]
+    keep += [c for c in cfg.get("extra_cols", []) if c in have and c not in keep]
+    t = t_lf.select(keep).collect()
+    if "position_id" in cfg["join"]:  # corpus stores UInt64, ontask Int64
+        o = o.with_columns(pl.col("position_id").cast(pl.Int64))
+        t = t.with_columns(pl.col("position_id").cast(pl.Int64))
+    return o.join(t, on=cfg["join"], how="left")
 
 
 def _q1(df: pl.DataFrame, mode: str, n_boot=2000):
@@ -205,14 +227,60 @@ def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
     return rows, float(y.mean()), controls
 
 
+# Signals present in the all-token corpora (bridge_extract_all.py); every one
+# is blind. The old referenced signals (kl, w, attn_rollout except OPI's) do
+# not exist there, so the all-token tables are the blind story only.
+ALL_TOKEN_SIGNALS = ["surprisal", "entropy", "varentropy", "temporal_kl",
+                     "resid_jump", "lookback_ratio", "sink_drain",
+                     "head_disagreement"]
+
+
+def _all_tokens_cfg(kind: str, cfg: dict) -> dict:
+    cfg = dict(cfg)
+    cfg["ontask"] = f"results/bridge/all_{kind}_{{short}}_ontask"
+    cfg["signals_from"] = f"results/bridge/all_{kind}_{{short}}_corpus"
+    cfg["join"] = ["position_id"]
+    cfg["signals"] = ALL_TOKEN_SIGNALS + (["attn_rollout"] if kind == "opi" else [])
+    cfg["blind"] = set(ALL_TOKEN_SIGNALS)
+    cfg["extra_cols"] = ["region", "probe_tok_idx"]
+    cfg["title"] = cfg["title"] + " — ALL tokens (chat template + input + response)"
+    return cfg
+
+
+def _region_table(have) -> list[str]:
+    """Per model x region: token share and on-task rate — makes the template/
+    position confound inspectable at a glance."""
+    L = ["## Region composition\n",
+         "Share of all tokens and NLA on-task rate per region "
+         "(template = chat-template scaffolding outside any message content).\n",
+         "| model | region | share | on-task |", "|---|---|---|---|"]
+    for _s, _t, disp, df in have:
+        if "region" not in df.columns:
+            continue
+        g = (df.group_by("region")
+             .agg(pl.len().alias("n"), pl.col("on_task").mean().alias("rate"))
+             .sort("n", descending=True))
+        total = df.height
+        for r in g.iter_rows(named=True):
+            L.append(f"| {disp} | {r['region']} | {r['n'] / total:.2f} | "
+                     f"{r['rate']:.2f} |")
+    L.append("")
+    return L
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--kind", default="hand", choices=list(KINDS))
+    ap.add_argument("--all-tokens", action="store_true",
+                    help="read the all_* shard dirs (every token, region column)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
     cfg = KINDS[args.kind]
-    out_path = args.out or f"findings/token-selector/bridge-{args.kind}.md"
+    if args.all_tokens:
+        cfg = _all_tokens_cfg(args.kind, cfg)
+    suffix = "-all" if args.all_tokens else ""
+    out_path = args.out or f"findings/token-selector/bridge-{args.kind}{suffix}.md"
 
     loaded = [(s, t, disp, _load(cfg, s, t)) for s, t, disp in cfg["models"]]
     have = [(s, t, disp, df) for s, t, disp, df in loaded if df is not None]
@@ -252,6 +320,9 @@ def main(argv=None) -> int:
             L.append(f"| {disp} | {mode_disp.get(mode, mode)} | {ins:.2f} (n={ni}) | "
                      f"{out:.2f} (n={no}) | **{lift:+.2f}** [{lo:+.2f}, {hi:+.2f}]{star} |")
     L.append("")
+
+    if args.all_tokens:
+        L.extend(_region_table(have))
 
     L.append("## Q2 — which cheap pre-pass signal predicts where the NLA is on-task?\n")
     L.append("Full table: AUROC of **every** signal vs the judge's on-task label, one row "
