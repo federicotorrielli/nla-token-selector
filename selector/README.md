@@ -93,6 +93,22 @@ template included — the deployment-realistic pool a selector must rank):
   (batch 64→512 flat; CUDA graphs 5%, i.e. noise), so graphs stay disabled as
   the NLA inference code intends. `bench_decode.py` / `bench_engine.py` are the
   measurement scripts; re-run them if the hardware or SGLang version changes.
+
+  **Where the remaining time goes** (profiled on 4xB200, g27): GPUs average
+  **33%** utilization and sit at 0% in ~60% of samples, while the host uses
+  **2.5 of 384 cores**. Neither resource is the limit. Each request ships its
+  whole prompt-embedding matrix — 125 tokens x 3584 floats = 448k Python floats
+  — which SGLang pickles to the scheduler process and turns into a tensor there
+  (`schedule_batch.py`, `torch.tensor(input_embeds, ...)`), single-threaded per
+  engine. That one thread is the ceiling; the GPU waits on it. Only the
+  injected row actually differs between requests, so an `input_ids` + sparse
+  embed override would cut the payload ~125x, but SGLang has no such API.
+  Do **not** try to fix this by checkpointing from worker threads during
+  decode: that was measured at 30.7 vs 51.2 pos/s, because the extra threads
+  contend for the GIL with the very event loop that is saturated. The one
+  untried lever is running two engines per GPU for models that fit in half the
+  memory (CPU headroom is enormous); it does not help l70, which needs a whole
+  card.
 - **Multi-GPU**: set `NGPU` (defaults to every visible GPU). Decode and judge
   then run one worker per GPU over disjoint shards
   (`--shard-stride N --shard-offset K`, `CUDA_VISIBLE_DEVICES` per worker).
