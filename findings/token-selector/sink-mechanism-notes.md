@@ -111,6 +111,23 @@ channels dropped). `consolidate_all.py` joins them into the canonical table, so
 the spike columns sit beside the signals and the on-task label. No GPU, no
 forward pass, nothing added to the running job.
 
+Decided on 2026-07-28: run these three first, and let them say whether the
+per-head work in section 3 is worth a second extraction pass at all.
+
+```bash
+python selector/spike_stats.py                        # after the run finishes
+python selector/consolidate_all.py
+for k in hand opi tt liars taboo; do
+  python selector/bridge_report.py --kind $k --all-tokens
+  python selector/bridge_report.py --kind $k --all-tokens --content-only
+done
+```
+
+`spike_mass`, `peak_ratio` and `resid_jump_masked` join the ordinary signal
+table, so they arrive with the same intervals, controls and false discovery rate
+control as everything else. `--content-only` drops the chat-template tokens, and
+the gap between the two reports is the size of the template confound.
+
 That buys three tests as soon as the data lands:
 
 1. **Is a spike token a wasted explanation?** The NLA reads the very layer these

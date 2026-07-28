@@ -122,7 +122,18 @@ def _load(cfg: dict, short: str, tag: str):
     if "position_id" in cfg["join"]:  # corpus stores UInt64, ontask Int64
         o = o.with_columns(pl.col("position_id").cast(pl.Int64))
         t = t.with_columns(pl.col("position_id").cast(pl.Int64))
-    return o.join(t, on=cfg["join"], how="left")
+    df = o.join(t, on=cfg["join"], how="left")
+    # side table written from the stored activations by spike_stats.py; absent
+    # until that has run, and the report simply drops those rows of the table
+    extra = cfg.get("extra_from")
+    x_lf = _scan(Path(extra.format(short=short))) if extra else None
+    if x_lf is not None:
+        x_cols = [c for c in cfg["signals"] if c in _cols(x_lf)]
+        x = (x_lf.select(["position_id", *x_cols]).collect()
+             .with_columns(pl.col("position_id").cast(pl.Int64))
+             .unique(subset=["position_id"], keep="first"))
+        df = df.join(x, on="position_id", how="left")
+    return df
 
 
 def _q1(df: pl.DataFrame, mode: str, n_boot=2000):
@@ -233,15 +244,22 @@ def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
 ALL_TOKEN_SIGNALS = ["surprisal", "entropy", "varentropy", "temporal_kl",
                      "resid_jump", "lookback_ratio", "sink_drain",
                      "head_disagreement"]
+# Derived from the stored activations by spike_stats.py, so they cost no forward
+# pass. spike_mass and peak_ratio ask whether a token is architecturally spiky
+# (Sun et al., arXiv:2603.05498); resid_jump_masked is resid_jump with the spike
+# channels dropped. All exploratory, so all under the FDR family.
+SPIKE_SIGNALS = ["spike_mass", "peak_ratio", "resid_jump_masked"]
 
 
 def _all_tokens_cfg(kind: str, cfg: dict) -> dict:
     cfg = dict(cfg)
     cfg["ontask"] = f"results/bridge/all_{kind}_{{short}}_ontask"
     cfg["signals_from"] = f"results/bridge/all_{kind}_{{short}}_corpus"
+    cfg["extra_from"] = f"results/bridge/all_{kind}_{{short}}_spike"
     cfg["join"] = ["position_id"]
-    cfg["signals"] = ALL_TOKEN_SIGNALS + (["attn_rollout"] if kind == "opi" else [])
-    cfg["blind"] = set(ALL_TOKEN_SIGNALS)
+    cfg["signals"] = (ALL_TOKEN_SIGNALS + SPIKE_SIGNALS
+                      + (["attn_rollout"] if kind == "opi" else []))
+    cfg["blind"] = set(ALL_TOKEN_SIGNALS) | set(SPIKE_SIGNALS)
     cfg["extra_cols"] = ["region", "probe_tok_idx"]
     cfg["title"] = cfg["title"] + " — ALL tokens (chat template + input + response)"
     return cfg
@@ -274,16 +292,22 @@ def main(argv=None) -> int:
     ap.add_argument("--kind", default="hand", choices=list(KINDS))
     ap.add_argument("--all-tokens", action="store_true",
                     help="read the all_* shard dirs (every token, region column)")
+    ap.add_argument("--content-only", action="store_true",
+                    help="drop chat-template tokens; run with and without to see "
+                         "how much of an all-token AUROC is template separation")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
     cfg = KINDS[args.kind]
     if args.all_tokens:
         cfg = _all_tokens_cfg(args.kind, cfg)
-    suffix = "-all" if args.all_tokens else ""
+    suffix = ("-all" if args.all_tokens else "") + ("-content" if args.content_only else "")
     out_path = args.out or f"findings/token-selector/bridge-{args.kind}{suffix}.md"
 
     loaded = [(s, t, disp, _load(cfg, s, t)) for s, t, disp in cfg["models"]]
     have = [(s, t, disp, df) for s, t, disp, df in loaded if df is not None]
+    if args.content_only:
+        have = [(s, t, disp, df.filter(pl.col("region") != "template"))
+                for s, t, disp, df in have if "region" in df.columns]
     if not have:
         print(f"no {args.kind} bridge outputs found under results/bridge/", file=sys.stderr)
         return 1
