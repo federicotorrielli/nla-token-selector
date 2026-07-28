@@ -30,6 +30,8 @@ BR = Path("results/bridge")
 KINDS = {"hand": ["q7", "g12", "g27", "l70"], "opi": ["q7", "g12", "g27", "l70"],
          "tt": ["q7", "g12", "g27", "l70"], "taboo": ["q7", "g12", "g27", "l70"],
          "liars": ["g27", "l70"]}
+# written by spike_stats.py from the stored activations; absent until it runs
+SPIKE_COLS = ["spike_mass", "peak_ratio", "act_norm", "resid_jump_masked"]
 
 
 def _scan_dir(d: Path):
@@ -44,12 +46,14 @@ def consolidate(kind: str, short: str) -> None:
     meta_cols = [c for c in corp.collect_schema().names() if c != "activation"]
     df = (corp.select(meta_cols).collect()
           .with_columns(pl.col("position_id").cast(pl.Int64)))
-    for src, col in [(f"all_{kind}_{short}_explanations", "explanation"),
-                     (f"all_{kind}_{short}_ontask", "on_task")]:
+    for src, cols in [(f"all_{kind}_{short}_explanations", ["explanation"]),
+                      (f"all_{kind}_{short}_ontask", ["on_task"]),
+                      (f"all_{kind}_{short}_spike", SPIKE_COLS)]:
         lf = _scan_dir(BR / src)
         if lf is None:
             continue
-        right = (lf.select(["position_id", col]).collect()
+        have = [c for c in cols if c in lf.collect_schema().names()]
+        right = (lf.select(["position_id", *have]).collect()
                  .with_columns(pl.col("position_id").cast(pl.Int64))
                  .unique(subset=["position_id"], keep="first"))
         df = df.join(right, on="position_id", how="left")

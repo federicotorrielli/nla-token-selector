@@ -95,13 +95,46 @@ gated heads are short range, and ungating is what lets a head reach further. Mea
 attention distance per head is a direct readout of that and costs nothing extra,
 since we already hold the attention row.
 
+## 3b. What the all-token run can already answer
+
+Methods A, B, D and E all need the per-head attention maps, so they need a fresh
+forward pass and have to wait for the GPUs. Method C does not, and neither does
+the question of where the sinks actually are, because the all-token corpora store
+an activation for every token at the NLA layer, which is an intermediate layer,
+which is the depth band the paper says the spike channels own.
+
+`selector/spike_stats.py` reads those shards and writes, per position,
+`spike_mass` (the share of the squared norm held by the spike channels),
+`peak_ratio` (largest channel over the root mean square, which needs no channel
+list), `act_norm`, and `resid_jump_masked` (method C, the jump with the spike
+channels dropped). `consolidate_all.py` joins them into the canonical table, so
+the spike columns sit beside the signals and the on-task label. No GPU, no
+forward pass, nothing added to the running job.
+
+That buys three tests as soon as the data lands:
+
+1. **Is a spike token a wasted explanation?** The NLA reads the very layer these
+   channels dominate, so at a spike token it is handed something close to a
+   constant. If on-task rate falls with `spike_mass`, a threshold discards part
+   of the budget before any NLA call, at no cost, since the activation is already
+   computed. This is the cheapest possible selector and it is architectural
+   rather than task specific.
+2. **Do the existing signals just find the spike tokens?** Comparing each
+   signal's AUROC on the whole pool against its AUROC within the ordinary tokens
+   says how much of the all-token headline is position and template rather than
+   selection.
+3. **Does masking repair `resid_jump`?** Its AUROC against the on-task label,
+   before and after, on identical tokens.
+
 ## 4. Two risks to the run now in flight
 
 **Gemma's sliding window against long transcripts.** The comment at
 `signals.py:474` says every layer can see the sink because our transcripts are
-short. The all-token run broke that assumption: it uses full transcripts, with a
-cap of 2600 tokens on the response tasks and 4096 on OPI, while Gemma's local
-layers have a 1024 window. Past that point the local layers cannot see token 0 at
+short. That was true of the old corpora, whose OPI transcripts reach only 187
+tokens, so this bias cannot be tested on anything we already hold. The all-token
+run broke the assumption: it uses full transcripts, with a cap of 2600 tokens on
+the response tasks and 4096 on OPI, while Gemma's local layers have a 1024
+window. Past that point the local layers cannot see token 0 at
 all, so they contribute nothing to the sink mass, the average over layers falls,
 and `sink_drain` rises. That is a bias that grows with position, in the same
 direction for every long transcript, on two of our four models. It should be
