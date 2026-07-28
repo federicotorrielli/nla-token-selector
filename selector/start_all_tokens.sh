@@ -21,7 +21,8 @@ fi
 
 tmux new-session -d -s "$SESSION" -c "$ROOT" \
   "source '$CONDA_SH' && conda activate '$ENVNAME' && \
-   EXTRACT_PY='$EXTRACT_PY' bash selector/run_bridge_all_tokens.sh \
+   EXTRACT_PY='$EXTRACT_PY' ${NGPU:+NGPU=$NGPU} \
+   bash selector/run_bridge_all_tokens.sh \
    > results/logs/all_tokens_full.log 2>&1"
 sleep 3
 tmux has-session -t "$SESSION" 2>/dev/null \

@@ -180,6 +180,20 @@ def _run_dir_engine(args) -> int:
     print(f"{len(shards)} corpus shards for this worker, "
           f"{len(done)} positions already explained", flush=True)
 
+    # Check for work BEFORE loading the AV: on a resumed run most kinds are
+    # already complete, and loading a 70B model per worker per kind just to
+    # find nothing to do costs minutes each.
+    pending = 0
+    for shard in shards:
+        ids = (pl.scan_parquet(str(shard)).select("position_id").collect()
+               ["position_id"].to_list())
+        pending += sum(1 for p in ids if int(p) not in done)
+        if pending:
+            break
+    if not pending:
+        print("nothing to decode for this worker; skipping model load", flush=True)
+        return 0
+
     dec = EngineDecoder(Settings().model.av_repo, mem_fraction=args.mem_fraction,
                         inflight=args.inflight, max_new_tokens=args.max_new_tokens,
                         max_running_requests=args.max_running_requests)
