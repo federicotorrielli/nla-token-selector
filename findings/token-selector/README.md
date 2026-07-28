@@ -387,6 +387,9 @@ Per threat, ordered by cost:
   case.
 - **First, check the base rate.** If the on-task density is high (a fully executed
   attack), no selector helps — explain broadly or not at all.
+- **Do not hedge across two signals.** Pooling the tokens picked by two of them
+  never beats the better one, and often loses; spending a smaller budget on one
+  signal buys more than any combination of two. See `bridge-pooling.md`.
 
 ## How much should you trust this?
 
