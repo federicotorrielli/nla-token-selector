@@ -142,7 +142,16 @@ def do_judge(args) -> int:
                          pl.scan_parquet(str(f)).select("position_id").collect()
                          ["position_id"].to_list()}
             n = 0
-            for shard in sorted(expl_path.glob("*.parquet")):
+            all_shards = sorted(expl_path.glob("*.parquet"))
+            if args.shard_stride > 1:
+                assert 0 <= args.shard_offset < args.shard_stride, (
+                    f"--shard-offset must be in [0, {args.shard_stride})")
+                mine = [s for i, s in enumerate(all_shards)
+                        if i % args.shard_stride == args.shard_offset]
+                print(f"worker {args.shard_offset}/{args.shard_stride}: "
+                      f"{len(mine)} of {len(all_shards)} shards", flush=True)
+                all_shards = mine
+            for shard in all_shards:
                 # shard-cache.parquet is usually pre-judged via the seeded
                 # ontask shard (its positions are then in `done`); if not, it
                 # is judged into its own file so the seed is never clobbered.
@@ -220,6 +229,10 @@ def main(argv=None) -> int:
     ap.add_argument("--judge-url", default="http://127.0.0.1:31000")
     ap.add_argument("--judge-model", default="nvidia/DeepSeek-V4-Flash-NVFP4")
     ap.add_argument("--workers", type=int, default=48, help="concurrent judge requests")
+    ap.add_argument("--shard-stride", type=int, default=1,
+                    help="number of parallel judge workers (one per GPU)")
+    ap.add_argument("--shard-offset", type=int, default=0,
+                    help="this worker's index in [0, stride)")
     args = ap.parse_args(argv)
     if args.judge:
         return do_judge(args)

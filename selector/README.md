@@ -93,6 +93,18 @@ template included — the deployment-realistic pool a selector must rank):
   (batch 64→512 flat; CUDA graphs 5%, i.e. noise), so graphs stay disabled as
   the NLA inference code intends. `bench_decode.py` / `bench_engine.py` are the
   measurement scripts; re-run them if the hardware or SGLang version changes.
+- **Multi-GPU**: set `NGPU` (defaults to every visible GPU). Decode and judge
+  then run one worker per GPU over disjoint shards
+  (`--shard-stride N --shard-offset K`, `CUDA_VISIBLE_DEVICES` per worker).
+  This is *data* parallelism: every AV in the registry, l70 included, fits on
+  one B200, so splitting a model across GPUs would only add communication.
+  Each worker writes explanation shards named after the corpus shards it read,
+  so the output directory reassembles itself with no merge step, and a dead
+  worker is restarted with the same offset to resume just its share.
+  `python selector/bridge_run_nla.py --selftest` checks the partition is
+  disjoint and complete. Scaling is near-linear in GPUs; watch host CPU, since
+  one decode worker carried a load of ~70 on a 384-core node, so ~4-5 workers
+  per machine is the comfortable ceiling.
 - `start_all_tokens.sh` — starts the run in a detached **tmux** session
   (`tmux attach -t nla` to watch). Plain nohup over a closing SSH channel did
   not survive reliably.

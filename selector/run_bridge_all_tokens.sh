@@ -21,6 +21,10 @@ NLIMIT=${NLIMIT:-}
 MODELS=${MODELS:-"q7 g12 g27 l70"}
 KINDS=${KINDS:-"hand taboo tt opi liars"}
 INFLIGHT=${INFLIGHT:-256}   # measured plateau; 1024 is no faster
+# GPUs to spread the decode and judge phases over (data parallel, disjoint
+# shards). Defaults to every visible GPU.
+NGPU=${NGPU:-$(nvidia-smi -L 2>/dev/null | wc -l)}
+[ "${NGPU:-0}" -ge 1 ] || NGPU=1
 
 declare -A BASE=( [q7]=Qwen/Qwen2.5-7B-Instruct [g12]=google/gemma-3-12b-it [g27]=google/gemma-3-27b-it [l70]=meta-llama/Llama-3.3-70B-Instruct )
 declare -A LAYER=( [q7]=20 [g12]=32 [g27]=41 [l70]=53 )
@@ -134,41 +138,78 @@ for M in $MODELS; do
   # Decode in-process (--engine): ~2.9x the HTTP server path, measured on q7
   # (3.9 serial / 12.4 concurrent over HTTP vs 21.9 in-process + continuous
   # batching; see selector/bench_engine.py). No AV server to launch or health
-  # check — the engine loads the AV itself and shuts down after each kind.
+  # check — the engine loads the AV itself and shuts down when done.
+  #
+  # NGPU>1 runs one worker per GPU over disjoint shards (decodes are
+  # independent; each worker writes explanation shards named after the corpus
+  # shards it read, so there is no merge step). Every model in the registry,
+  # l70 included, fits on a single B200, so this is data parallelism — no
+  # tensor parallelism, no cross-GPU traffic.
   for K in $(kinds_for "$M"); do
     CORP=results/bridge/all_${K}_${M}_corpus
     [ -d "$CORP" ] || continue
-    echo "  [p2] decode $K $M $(date +%H:%M:%S)"
-    $PY selector/bridge_run_nla.py --model-short "$M" --corpus "$CORP" \
-      --out "results/bridge/all_${K}_${M}_explanations" \
-      --engine --inflight "$INFLIGHT" ${NLIMIT:+--limit $NLIMIT} \
-      > "results/logs/all_p2_${K}_${M}.log" 2>&1 \
-      || { echo "  [p2] decode FAIL $K $M"; tail -6 "results/logs/all_p2_${K}_${M}.log"; }
-    pkill -9 -f "sglang" 2>/dev/null; sleep 5
+    echo "  [p2] decode $K $M on ${NGPU} GPU(s) $(date +%H:%M:%S)"
+    PIDS=()
+    for ((g = 0; g < NGPU; g++)); do
+      LOG=results/logs/all_p2_${K}_${M}$([ "$NGPU" -gt 1 ] && echo "_g$g").log
+      CUDA_VISIBLE_DEVICES=$g $PY selector/bridge_run_nla.py --model-short "$M" \
+        --corpus "$CORP" --out "results/bridge/all_${K}_${M}_explanations" \
+        --engine --inflight "$INFLIGHT" \
+        --shard-stride "$NGPU" --shard-offset "$g" ${NLIMIT:+--limit $NLIMIT} \
+        > "$LOG" 2>&1 &
+      PIDS+=($!)
+    done
+    FAILED=0
+    for p in "${PIDS[@]}"; do wait "$p" || FAILED=1; done
+    [ "$FAILED" = 1 ] && { echo "  [p2] decode FAIL $K $M";
+                           tail -6 results/logs/all_p2_${K}_${M}*.log; }
+    sleep 5   # let GPU memory settle before the next kind
   done
   echo "  [done] $M $(date +%H:%M:%S)"
 done
 
-echo "=== ALL_JUDGE $(date +%H:%M:%S) ==="
-HF_HUB_ENABLE_HF_TRANSFER=1 nohup bash "$HERE/launch_sglang.sh" --model-path nvidia/DeepSeek-V4-Flash-NVFP4 \
-  --port 31000 --host 127.0.0.1 --mem-fraction-static 0.90 --tp 1 \
-  > results/logs/all_judge.log 2>&1 &
-JPID=$!
-if wait_health 31000 "judge" results/logs/all_judge.log; then
+echo "=== ALL_JUDGE on ${NGPU} GPU(s) $(date +%H:%M:%S) ==="
+# One judge server per GPU (ports 31000+g), then one judge worker per server
+# over disjoint explanation shards.
+JPIDS=()
+READY=0
+for ((g = 0; g < NGPU; g++)); do
+  CUDA_VISIBLE_DEVICES=$g HF_HUB_ENABLE_HF_TRANSFER=1 \
+    nohup bash "$HERE/launch_sglang.sh" --model-path nvidia/DeepSeek-V4-Flash-NVFP4 \
+    --port $((31000 + g)) --host 127.0.0.1 --mem-fraction-static 0.90 --tp 1 \
+    > "results/logs/all_judge_server_g$g.log" 2>&1 &
+  JPIDS+=($!)
+done
+for ((g = 0; g < NGPU; g++)); do
+  wait_health $((31000 + g)) "judge:g$g" "results/logs/all_judge_server_g$g.log" \
+    && READY=$((READY + 1))
+done
+
+if [ "$READY" -gt 0 ]; then
   for M in $MODELS; do
     for K in $(kinds_for "$M"); do
       EXPL=results/bridge/all_${K}_${M}_explanations
       [ -d "$EXPL" ] || continue
       echo "  [judge] $K $M $(date +%H:%M:%S)"
-      $PY selector/bridge_judge_ontask.py --judge --explanations "$EXPL" \
-        --judge-url http://127.0.0.1:31000 --judge-model nvidia/DeepSeek-V4-Flash-NVFP4 \
-        --workers 48 --out "results/bridge/all_${K}_${M}_ontask" \
-        > "results/logs/all_judge_${K}_${M}.log" 2>&1 \
-        || { echo "  [judge] FAIL $K $M"; tail -6 "results/logs/all_judge_${K}_${M}.log"; }
+      PIDS=()
+      for ((g = 0; g < READY; g++)); do
+        LOG=results/logs/all_judge_${K}_${M}$([ "$READY" -gt 1 ] && echo "_g$g").log
+        $PY selector/bridge_judge_ontask.py --judge --explanations "$EXPL" \
+          --judge-url "http://127.0.0.1:$((31000 + g))" \
+          --judge-model nvidia/DeepSeek-V4-Flash-NVFP4 \
+          --workers 48 --out "results/bridge/all_${K}_${M}_ontask" \
+          --shard-stride "$READY" --shard-offset "$g" > "$LOG" 2>&1 &
+        PIDS+=($!)
+      done
+      FAILED=0
+      for p in "${PIDS[@]}"; do wait "$p" || FAILED=1; done
+      [ "$FAILED" = 1 ] && { echo "  [judge] FAIL $K $M";
+                             tail -6 results/logs/all_judge_${K}_${M}*.log; }
     done
   done
 fi
-kill -9 "$JPID" 2>/dev/null; pkill -9 -f "sglang.launch_server" 2>/dev/null
+for p in "${JPIDS[@]}"; do kill -9 "$p" 2>/dev/null; done
+pkill -9 -f "sglang.launch_server" 2>/dev/null
 
 echo "=== CONSOLIDATE $(date +%H:%M:%S) ==="
 # One canonical per-token parquet per benchmark x model (no activations):

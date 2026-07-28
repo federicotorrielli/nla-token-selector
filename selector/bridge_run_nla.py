@@ -141,15 +141,34 @@ def _decode_todo(client, meta: dict, todo: list[int], rows: list[dict], outp: Pa
     _atomic_write(pl.DataFrame(rows), outp)
 
 
+def _my_shards(corpus_dir: Path, args) -> list[Path]:
+    """This worker's slice of the corpus shards.
+
+    Decodes are independent, so N workers (one per GPU) split the shards by
+    `index % stride == offset` and never touch each other's output files. Each
+    writes explanations named after the corpus shard it read, so the output
+    directory reassembles itself with no merge step, and a worker that dies is
+    restarted with the same offset to resume only its own share.
+    """
+    shards = sorted(corpus_dir.glob("shard-*.parquet"))
+    assert shards, f"no shards under {corpus_dir}"
+    if args.shard_stride <= 1:
+        return shards
+    assert 0 <= args.shard_offset < args.shard_stride, (
+        f"--shard-offset must be in [0, {args.shard_stride})")
+    mine = [s for i, s in enumerate(shards) if i % args.shard_stride == args.shard_offset]
+    print(f"worker {args.shard_offset}/{args.shard_stride}: "
+          f"{len(mine)} of {len(shards)} shards", flush=True)
+    return mine
+
+
 def _run_dir_engine(args) -> int:
     """Directory-of-shards mode over the in-process engine (the fast path)."""
     import polars as pl
 
     from nla_token_selector.settings import Settings
 
-    corpus_dir = Path(args.corpus)
-    shards = sorted(corpus_dir.glob("shard-*.parquet"))
-    assert shards, f"no shards under {corpus_dir}"
+    shards = _my_shards(Path(args.corpus), args)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -158,8 +177,8 @@ def _run_dir_engine(args) -> int:
         done |= {int(p) for p in
                  pl.scan_parquet(str(f)).select("position_id").collect()
                  ["position_id"].to_list()}
-    print(f"{len(shards)} corpus shards, {len(done)} positions already explained",
-          flush=True)
+    print(f"{len(shards)} corpus shards for this worker, "
+          f"{len(done)} positions already explained", flush=True)
 
     dec = EngineDecoder(Settings().model.av_repo, mem_fraction=args.mem_fraction,
                         inflight=args.inflight, max_new_tokens=args.max_new_tokens,
@@ -256,11 +275,39 @@ def _run_dir(args) -> int:
     return 0
 
 
+def _selftest() -> int:
+    """The shard partition must be disjoint AND complete: a worker set that
+    silently drops a shard loses those tokens with no error anywhere."""
+    import tempfile
+    from types import SimpleNamespace
+
+    ok = True
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        for i in range(11):  # 11 shards over 4 workers: deliberately uneven
+            (d / f"shard-{i:05d}.parquet").touch()
+        for stride in (1, 2, 3, 4, 8, 16):
+            seen: list[Path] = []
+            for off in range(stride):
+                seen += _my_shards(d, SimpleNamespace(shard_stride=stride,
+                                                      shard_offset=off))
+            disjoint = len(seen) == len(set(seen))
+            complete = set(seen) == set(d.glob("shard-*.parquet"))
+            ok = ok and disjoint and complete
+            print(f"  [{'PASS' if disjoint and complete else 'FAIL'}] "
+                  f"stride={stride}: {len(seen)} shards, disjoint={disjoint}, "
+                  f"complete={complete}")
+    print(f"\nselftest: {'ALL PASS' if ok else 'FAILURES'}")
+    return 0 if ok else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--corpus", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--selftest", action="store_true",
+                    help="offline check of the shard partition (no GPU)")
+    ap.add_argument("--corpus", required=False)
+    ap.add_argument("--out", required=False)
     ap.add_argument("--sglang-url", default="http://localhost:30000")
     ap.add_argument("--model-short", default="q7")
     ap.add_argument("--batch", type=int, default=16)
@@ -275,7 +322,15 @@ def main(argv=None) -> int:
                     help="--engine: mem_fraction_static")
     ap.add_argument("--max-running-requests", type=int, default=None,
                     help="--engine: server-side concurrency cap")
+    ap.add_argument("--shard-stride", type=int, default=1,
+                    help="number of parallel workers (one per GPU)")
+    ap.add_argument("--shard-offset", type=int, default=0,
+                    help="this worker's index in [0, stride)")
     args = ap.parse_args(argv)
+    if args.selftest:
+        return _selftest()
+    if not args.corpus or not args.out:
+        ap.error("--corpus and --out are required")
 
     # Configure the Settings tree before importing the package: point the corpus
     # and the AV server at ours. Settings() defaults to the default overlay.
