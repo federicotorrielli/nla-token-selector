@@ -141,12 +141,27 @@ def _regions(df: pl.DataFrame) -> dict[str, float]:
     return out
 
 
-def run(sig_a: str, sig_b: str, frac: float, tail: str, n_boot: int, seed: int) -> str:
+def _sources(all_tokens: bool):
+    """(task, model, frame) over either the committed per-token CSVs or the
+    consolidated all-token tables. The all-token pool is every position of the
+    rendered transcript, which is the pool a deployed selector actually ranks."""
+    if all_tokens:
+        for p in sorted(Path("results/bridge").glob("all_*.parquet")):
+            task, model = p.stem[len("all_"):].rsplit("_", 1)
+            df = pl.read_parquet(p)
+            if "on_task" in df.columns:
+                yield task, model, df.filter(pl.col("on_task").is_not_null())
+    else:
+        for p in sorted(CSVS.glob("*.csv")):
+            task, model = p.stem.rsplit("_", 1)
+            yield task, model, pl.read_csv(p)
+
+
+def run(sig_a: str, sig_b: str, frac: float, tail: str, n_boot: int, seed: int,
+        all_tokens: bool = False) -> str:
     rows = []
-    for csv in sorted(CSVS.glob("*.csv")):
-        task, model = csv.stem.rsplit("_", 1)
-        df = pl.read_csv(csv)
-        if sig_a not in df.columns or sig_b not in df.columns:
+    for task, model, df in _sources(all_tokens):
+        if sig_a not in df.columns or sig_b not in df.columns or df.is_empty():
             continue
         for mode in sorted(df["mode"].unique()) if task == "hand" else [None]:
             sub = df.filter(pl.col("mode") == mode) if mode else df
@@ -259,11 +274,15 @@ def main() -> None:
     ap.add_argument("--n-boot", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--all-tokens", action="store_true",
+                    help="read results/bridge/all_{kind}_{model}.parquet instead "
+                         "of the committed per-token CSVs")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
         return _selftest()
-    md = run(*args.signals, args.frac, args.tail, args.n_boot, args.seed)
+    md = run(*args.signals, args.frac, args.tail, args.n_boot, args.seed,
+             args.all_tokens)
     if args.out:
         args.out.write_text(md + "\n")
     print(md)
