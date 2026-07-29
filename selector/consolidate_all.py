@@ -30,7 +30,7 @@ BR = Path("results/bridge")
 KINDS = {"hand": ["q7", "g12", "g27", "l70"], "opi": ["q7", "g12", "g27", "l70"],
          "tt": ["q7", "g12", "g27", "l70"], "taboo": ["q7", "g12", "g27", "l70"],
          "liars": ["g27", "l70"]}
-# written by spike_stats.py from the stored activations; absent until it runs
+# written by all_tokens_eval.py spike
 SPIKE_COLS = ["spike_mass", "peak_ratio", "act_norm", "resid_jump_masked"]
 
 

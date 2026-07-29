@@ -123,8 +123,6 @@ def _load(cfg: dict, short: str, tag: str):
         o = o.with_columns(pl.col("position_id").cast(pl.Int64))
         t = t.with_columns(pl.col("position_id").cast(pl.Int64))
     df = o.join(t, on=cfg["join"], how="left")
-    # side table written from the stored activations by spike_stats.py; absent
-    # until that has run, and the report simply drops those rows of the table
     extra = cfg.get("extra_from")
     x_lf = _scan(Path(extra.format(short=short))) if extra else None
     if x_lf is not None:
@@ -244,10 +242,9 @@ def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
 ALL_TOKEN_SIGNALS = ["surprisal", "entropy", "varentropy", "temporal_kl",
                      "resid_jump", "lookback_ratio", "sink_drain",
                      "head_disagreement"]
-# Derived from the stored activations by spike_stats.py, so they cost no forward
-# pass. spike_mass and peak_ratio ask whether a token is architecturally spiky
-# (Sun et al., arXiv:2603.05498); resid_jump_masked is resid_jump with the spike
-# channels dropped. All exploratory, so all under the FDR family.
+# Activation-derived (all_tokens_eval.py spike): whether a token is
+# architecturally spiky (Sun et al., arXiv:2603.05498), and resid_jump with the
+# spike channels dropped. Exploratory, so under the FDR family.
 SPIKE_SIGNALS = ["spike_mass", "peak_ratio", "resid_jump_masked"]
 
 
