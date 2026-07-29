@@ -35,6 +35,12 @@ SPIKE_COLS = ["dominant_mass", "peak_ratio", "act_norm", "norm_ratio",
                "resid_jump_nla"]
 
 
+def _z(col: str):
+    """Z-score within a transcript."""
+    return ((pl.col(col) - pl.col(col).mean().over("case_id"))
+            / (pl.col(col).std().over("case_id") + 1e-12))
+
+
 def _scan_dir(d: Path):
     shards = sorted(d.glob("*.parquet")) if d.is_dir() else []
     return pl.scan_parquet([str(f) for f in shards]) if shards else None
@@ -58,6 +64,8 @@ def consolidate(kind: str, short: str) -> None:
                  .with_columns(pl.col("position_id").cast(pl.Int64))
                  .unique(subset=["position_id"], keep="first"))
         df = df.join(right, on="position_id", how="left")
+    if {"sink_drain", "lookback_ratio"} <= set(df.columns):
+        df = df.with_columns((_z("sink_drain") - _z("lookback_ratio")).alias("w"))
     df = df.sort("position_id")
     out = BR / f"all_{kind}_{short}.parquet"
     tmp = out.with_suffix(".tmp.parquet")
