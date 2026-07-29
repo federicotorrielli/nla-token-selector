@@ -23,6 +23,54 @@ SIGNALS = ["surprisal", "entropy", "varentropy", "resid_jump",
            "lookback_ratio", "sink_drain", "head_disagreement"]
 
 
+def _locate_spans(rendered: str, contents: list[str]) -> list[tuple[int, int]]:
+    """Char span of each content string inside `rendered`, searched left-to-right
+    with an advancing cursor so repeated content cannot mismatch. Strip-tolerant
+    for templates that trim message whitespace (e.g. Gemma); the trimmed span is
+    returned in that case. (-1, -1) for content that cannot be located."""
+    spans: list[tuple[int, int]] = []
+    cur = 0
+    for content in contents:
+        c0 = rendered.find(content, cur) if content else -1
+        if c0 >= 0:
+            c1 = c0 + len(content)
+        else:
+            stripped = content.strip() if content else ""
+            c0 = rendered.find(stripped, cur) if stripped else -1
+            if c0 < 0:
+                spans.append((-1, -1))
+                continue
+            c1 = c0 + len(stripped)
+        spans.append((c0, c1))
+        cur = c1
+    return spans
+
+
+def _message_views(tokenizer, messages: list[dict]) -> tuple[list[int], list[str]]:
+    """Render the full transcript and label EVERY token with a region: the role of
+    the message content containing it ('system' / 'user' / 'assistant' for the
+    LAST assistant message / 'assistant_prior' for earlier assistant turns / the
+    role name as-is otherwise), or 'template' for chat-template scaffolding
+    outside any content span. Returns (ids, regions), len(regions) == len(ids)."""
+    rendered = tokenizer.apply_chat_template(messages, tokenize=False)
+    spans = _locate_spans(rendered, [m["content"] for m in messages])
+    last_asst = max((i for i, m in enumerate(messages) if m["role"] == "assistant"),
+                    default=-1)
+    roles = [("assistant_prior" if m["role"] == "assistant" and i != last_asst
+              else m["role"]) for i, m in enumerate(messages)]
+    enc = tokenizer(rendered, add_special_tokens=False, return_offsets_mapping=True)
+    ids = enc["input_ids"]
+    regions = ["template"] * len(ids)
+    for ti, (s, e) in enumerate(enc["offset_mapping"]):
+        if e <= s:
+            continue
+        for (c0, c1), role in zip(spans, roles, strict=True):
+            if c0 >= 0 and s >= c0 and e <= c1:
+                regions[ti] = role
+                break
+    return ids, regions
+
+
 def load_resume(out_path):
     """Resume support: (existing_rows, done_case_ids, next_position_id). A killed
     extract restarts from the last checkpoint instead of from zero."""

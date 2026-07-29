@@ -78,6 +78,17 @@ for k in opi tt liars taboo; do python selector/bridge_report.py --kind $k; done
 python selector/make_csvs.py
 ```
 
+The **all-token variant** re-runs the whole pipeline over EVERY token of the full
+rendered transcript (chat template included), reusing the cached NLA explanations
+and judge labels for the previously probed tokens:
+
+```bash
+bash selector/run_bridge_all_tokens.sh   # MODELS/KINDS/LIMIT/NLIMIT env knobs
+for k in hand opi tt liars taboo; do python selector/bridge_report.py --kind $k --all-tokens; done
+python selector/make_csvs.py --all
+python selector/bridge_extract_all.py --selftest   # offline check, no GPU
+```
+
 ## Traps
 
 - The files in `selector/` are standalone scripts. They import each other by adding
@@ -92,10 +103,22 @@ python selector/make_csvs.py
   interesting token. The bridge extractors store it raw. An AUROC below 0.5 in a
   bridge table therefore means the signal runs backward, and the two families of
   tables read in opposite directions.
-- The model registry appears in five places: `configs/base.yaml`, the `declare -A`
-  blocks in each `run_bridge_*.sh`, `_FOUR` in `bridge_report.py`, `TAG` in
-  `make_csvs.py`, and `BASES` in `selector/data/taboo.py`. Adding a model means
-  editing all five.
+- The model registry appears in six places: `configs/base.yaml`, the `declare -A`
+  blocks in each `run_bridge_*.sh` (including `run_bridge_all_tokens.sh`), `_FOUR`
+  in `bridge_report.py`, `TAG` in `make_csvs.py`, and `BASES` in
+  `selector/data/taboo.py`. Adding a model means editing all six.
+- All-token outputs are DIRECTORIES of parquet shards
+  (`results/bridge/all_{kind}_{model}_{corpus,explanations,ontask}/`), not single
+  files — the corpora hold an activation per token and no longer fit in memory.
+  A `.done` sentinel marks a complete extraction; `shard-cache.parquet` inside
+  the explanations/ontask dirs holds the rows transplanted from the original run
+  by `seed_from_cache.py` (join on `case_id` + `probe_tok_idx`). Tensor Trust and
+  taboo replies are rebuilt from the stored corpus tokens (taboo samples were
+  unseeded temperature draws, so full regeneration cannot reproduce them), then
+  greedily continued past the old 30-token cap up to the original generation
+  budget. `consolidate_all.py` collapses each benchmark x model into ONE
+  canonical `results/bridge/all_{kind}_{model}.parquet` (everything but the
+  activations) — further experiments should read that, not the shard dirs.
 - Configuration arrives as environment variables with the `CNLA_` prefix, which
   dates from the calibrated-nla project this repository was spun out of. They have
   to be set before the package is imported. The top of `bridge_run_nla.py` shows

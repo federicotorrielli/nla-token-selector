@@ -15,7 +15,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -84,23 +86,54 @@ KINDS = {
 }
 
 
+def _scan(path: Path):
+    """Lazy frame over a parquet file OR a directory of shards; None if absent.
+    Lazy so all-token corpora never materialize their activation column."""
+    if path.is_dir():
+        shards = sorted(path.glob("*.parquet"))
+        return pl.scan_parquet([str(f) for f in shards]) if shards else None
+    return pl.scan_parquet(str(path)) if path.exists() else None
+
+
+def _cols(lf) -> list[str]:
+    try:
+        return lf.collect_schema().names()
+    except AttributeError:  # older polars
+        return lf.columns
+
+
 def _load(cfg: dict, short: str, tag: str):
-    ot = Path(cfg["ontask"].format(short=short))
-    if not ot.exists():
+    o_lf = _scan(Path(cfg["ontask"].format(short=short)))
+    if o_lf is None:
         return None
-    o = pl.read_parquet(ot)
+    o = o_lf.collect()
     if cfg["signals_from"] == "tokens":
         src = Path(f"results/token_selector_v2/{tag}/tokens.parquet")
     else:
         src = Path(cfg["signals_from"].format(short=short))
-    if not src.exists():
+    t_lf = _scan(src)
+    if t_lf is None:
         return None
-    t = pl.read_parquet(src)
-    keep = [*cfg["join"], *[c for c in cfg["signals"] if c in t.columns]]
+    have = _cols(t_lf)
+    keep = [*cfg["join"], *[c for c in cfg["signals"] if c in have]]
     # position_id is already in the ontask frame; drop it from the right side dup
     if cfg["join"] == ["position_id"]:
-        keep = ["position_id", *[c for c in cfg["signals"] if c in t.columns]]
-    return o.join(t.select(keep), on=cfg["join"], how="left")
+        keep = ["position_id", *[c for c in cfg["signals"] if c in have]]
+    keep += [c for c in cfg.get("extra_cols", []) if c in have and c not in keep]
+    t = t_lf.select(keep).collect()
+    if "position_id" in cfg["join"]:  # corpus stores UInt64, ontask Int64
+        o = o.with_columns(pl.col("position_id").cast(pl.Int64))
+        t = t.with_columns(pl.col("position_id").cast(pl.Int64))
+    df = o.join(t, on=cfg["join"], how="left")
+    extra = cfg.get("extra_from")
+    x_lf = _scan(Path(extra.format(short=short))) if extra else None
+    if x_lf is not None:
+        x_cols = [c for c in cfg["signals"] if c in _cols(x_lf)]
+        x = (x_lf.select(["position_id", *x_cols]).collect()
+             .with_columns(pl.col("position_id").cast(pl.Int64))
+             .unique(subset=["position_id"], keep="first"))
+        df = df.join(x, on="position_id", how="left")
+    return df
 
 
 def _q1(df: pl.DataFrame, mode: str, n_boot=2000):
@@ -118,38 +151,74 @@ def _q1(df: pl.DataFrame, mode: str, n_boot=2000):
         i, o = yy[ll == 1], yy[ll == 0]
         return i.mean() - o.mean() if i.size and o.size else np.nan
 
+    # The lift only needs four per-case sums, so a resample is a weighted sum
+    # over cases rather than a rebuild of the token index.
+    _, cidx = np.unique(cases, return_inverse=True)
+    ncase = cidx.max() + 1
+    n1 = np.bincount(cidx, weights=(lab == 1).astype(float), minlength=ncase)
+    s1 = np.bincount(cidx, weights=((lab == 1) * y).astype(float), minlength=ncase)
+    n0 = np.bincount(cidx, weights=(lab == 0).astype(float), minlength=ncase)
+    s0 = np.bincount(cidx, weights=((lab == 0) * y).astype(float), minlength=ncase)
     rng = np.random.default_rng(0)
-    uniq = np.unique(cases)
-    idx_by = {c: np.where(cases == c)[0] for c in uniq}
-    boots = []
-    for _ in range(n_boot):
-        sel = np.concatenate([idx_by[c] for c in rng.choice(uniq, len(uniq), replace=True)])
-        v = lift(y[sel], lab[sel])
-        if not np.isnan(v):
-            boots.append(v)
-    lo, hi = (np.percentile(boots, [2.5, 97.5]) if boots else (np.nan, np.nan))
+    w = np.stack([np.bincount(rng.integers(0, ncase, ncase), minlength=ncase)
+                  for _ in range(n_boot)]).astype(float)
+    d1, d0 = w @ n1, w @ n0
+    with np.errstate(invalid="ignore", divide="ignore"):
+        boots = np.where((d1 > 0) & (d0 > 0), (w @ s1) / d1 - (w @ s0) / d0, np.nan)
+    boots = boots[~np.isnan(boots)]
+    lo, hi = (np.percentile(boots, [2.5, 97.5]) if boots.size else (np.nan, np.nan))
     return (inside.mean(), inside.size, outside.mean(), outside.size,
             inside.mean() - outside.mean(), float(lo), float(hi))
 
 
-def _clustered_boot(cases, scores, y, stat, n_boot=2000, seed=0):
-    """Case-cluster bootstrap of `stat(scores_sel, y_sel)`: resample whole cases
-    (tokens within a case are correlated). Returns (point, lo95, hi95, p_two_sided)
-    where p is the two-sided bootstrap p-value against the null value 0.5."""
-    rng = np.random.default_rng(seed)
-    uniq = np.unique(cases)
-    idx_by = {c: np.where(cases == c)[0] for c in uniq}
-    point = stat(scores, y)
-    boots = []
-    for _ in range(n_boot):
-        pick = rng.choice(uniq, size=len(uniq), replace=True)
-        sel = np.concatenate([idx_by[c] for c in pick])
-        v = stat(scores[sel], y[sel])
-        if not np.isnan(v):
-            boots.append(v)
-    if not boots:
+def _clustered_boot(cases, scores, y, stat=None, n_boot=2000, seed=0):
+    """Case-cluster bootstrap of the AUROC: resample whole cases, since tokens
+    within a case are correlated. Returns (point, lo95, hi95, p_two_sided),
+    p being the two-sided bootstrap p-value against the null value 0.5.
+
+    The scores never change, only which cases are drawn, so the sort is done
+    once and each resample is a linear pass: weight every token by how often
+    its case was drawn, then accumulate the Mann-Whitney statistic in score
+    order. Ties are folded in through their score group, contributing a half.
+    """
+    scores = np.asarray(scores, dtype=float)
+    y = np.asarray(y, dtype=float)
+    keep = ~np.isnan(scores)
+    scores, y, cases = scores[keep], y[keep], np.asarray(cases)[keep]
+    point = auroc(scores, y)
+    if not keep.any() or np.isnan(point):
         return point, float("nan"), float("nan"), float("nan")
-    b = np.array(boots)
+
+    _, cidx = np.unique(cases, return_inverse=True)
+    ncase = int(cidx.max()) + 1
+    order = np.argsort(scores, kind="mergesort")
+    ys, cs, ss = y[order], cidx[order], scores[order]
+    grp = np.concatenate([[0], np.cumsum(ss[1:] != ss[:-1])]).astype(np.intp)
+    ngrp = int(grp[-1]) + 1
+    tied = ngrp < len(ss)
+
+    rng = np.random.default_rng(seed)
+    boots = np.empty(n_boot)
+    for b in range(n_boot):
+        w = np.bincount(rng.integers(0, ncase, ncase), minlength=ncase).astype(float)
+        wt = w[cs]
+        pw = wt * ys
+        nw = wt - pw
+        npos, nneg = pw.sum(), nw.sum()
+        if npos == 0 or nneg == 0:
+            boots[b] = np.nan
+            continue
+        if tied:
+            pg = np.bincount(grp, weights=pw, minlength=ngrp)
+            ng = np.bincount(grp, weights=nw, minlength=ngrp)
+            u = (pg * (np.cumsum(ng) - 0.5 * ng)).sum()
+        else:
+            u = (pw * (np.cumsum(nw) - nw)).sum()
+        boots[b] = u / (npos * nneg)
+
+    b = boots[~np.isnan(boots)]
+    if not b.size:
+        return point, float("nan"), float("nan"), float("nan")
     lo, hi = np.percentile(b, [2.5, 97.5])
     p = 2.0 * min((b <= 0.5).mean(), (b >= 0.5).mean())
     return point, float(lo), float(hi), float(min(p, 1.0))
@@ -170,6 +239,12 @@ def _bh_fdr(pvals, q=0.05):
     return passed
 
 
+def _boot_one(args):
+    """One signal's bootstrap, run in a worker process."""
+    cases, scores, y, n_boot = args
+    return _clustered_boot(cases, scores, y, n_boot=n_boot)
+
+
 def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
     """Per-signal AUROC predicting on_task, with case-cluster CI, bootstrap p, and
     BH-FDR flag over the exploratory (non-primary) family. Plus two controls:
@@ -179,15 +254,15 @@ def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
     cases = np.array(m["case_id"].to_list())
     if y.sum() == 0 or y.sum() == len(y):
         return None, float("nan"), None
-    rows = []
-    for c in signals:
-        if c not in m.columns:
-            continue
-        s = np.array(m[c].to_list(), dtype=float)
-        pt, lo, hi, p = _clustered_boot(cases, s, y, auroc, n_boot=n_boot)
-        if not np.isnan(pt):
-            rows.append({"sig": c, "auroc": pt, "lo": lo, "hi": hi, "p": p,
-                         "primary": c in primaries})
+    present = [c for c in signals if c in m.columns]
+    scores = {c: m[c].to_numpy().astype(float) for c in present}
+    jobs = [(cases, scores[c], y, n_boot) for c in present]
+    with ProcessPoolExecutor(max_workers=min(len(jobs), os.cpu_count() or 1)) as ex:
+        results = list(ex.map(_boot_one, jobs))
+    rows = [{"sig": c, "auroc": pt, "lo": lo, "hi": hi, "p": p,
+             "primary": c in primaries}
+            for c, (pt, lo, hi, p) in zip(present, results, strict=True)
+            if not np.isnan(pt)]
     rows.sort(key=lambda r: abs(r["auroc"] - 0.5), reverse=True)
     # BH-FDR over the exploratory family only (primaries are confirmatory)
     expl = [r for r in rows if not r["primary"]]
@@ -205,17 +280,75 @@ def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
     return rows, float(y.mean()), controls
 
 
+# Signals present in the all-token corpora (bridge_extract_all.py); every one
+# is blind. The old referenced signals (kl, w, attn_rollout except OPI's) do
+# not exist there, so the all-token tables are the blind story only.
+ALL_TOKEN_SIGNALS = ["surprisal", "entropy", "varentropy", "temporal_kl",
+                     "resid_jump", "lookback_ratio", "sink_drain",
+                     "head_disagreement"]
+# Activation-derived (all_tokens_eval.py spike): whether a token is
+# architecturally spiky (Sun et al., arXiv:2603.05498), and resid_jump with the
+# spike channels dropped. Exploratory, so under the FDR family.
+SPIKE_SIGNALS = ["norm_ratio", "peak_ratio", "dominant_mass", "resid_jump_nla"]
+
+
+def _all_tokens_cfg(kind: str, cfg: dict) -> dict:
+    cfg = dict(cfg)
+    cfg["ontask"] = f"results/bridge/all_{kind}_{{short}}_ontask"
+    cfg["signals_from"] = f"results/bridge/all_{kind}_{{short}}_corpus"
+    cfg["extra_from"] = f"results/bridge/all_{kind}_{{short}}_spike"
+    cfg["join"] = ["position_id"]
+    cfg["signals"] = (ALL_TOKEN_SIGNALS + SPIKE_SIGNALS
+                      + (["attn_rollout"] if kind == "opi" else []))
+    cfg["blind"] = set(ALL_TOKEN_SIGNALS) | set(SPIKE_SIGNALS)
+    cfg["extra_cols"] = ["region", "probe_tok_idx"]
+    cfg["title"] = cfg["title"] + " — ALL tokens (chat template + input + response)"
+    return cfg
+
+
+def _region_table(have) -> list[str]:
+    """Per model x region: token share and on-task rate — makes the template/
+    position confound inspectable at a glance."""
+    L = ["## Region composition\n",
+         "Share of all tokens and NLA on-task rate per region "
+         "(template = chat-template scaffolding outside any message content).\n",
+         "| model | region | share | on-task |", "|---|---|---|---|"]
+    for _s, _t, disp, df in have:
+        if "region" not in df.columns:
+            continue
+        g = (df.group_by("region")
+             .agg(pl.len().alias("n"), pl.col("on_task").mean().alias("rate"))
+             .sort("n", descending=True))
+        total = df.height
+        for r in g.iter_rows(named=True):
+            L.append(f"| {disp} | {r['region']} | {r['n'] / total:.2f} | "
+                     f"{r['rate']:.2f} |")
+    L.append("")
+    return L
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--kind", default="hand", choices=list(KINDS))
+    ap.add_argument("--all-tokens", action="store_true",
+                    help="read the all_* shard dirs (every token, region column)")
+    ap.add_argument("--content-only", action="store_true",
+                    help="drop chat-template tokens; run with and without to see "
+                         "how much of an all-token AUROC is template separation")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
     cfg = KINDS[args.kind]
-    out_path = args.out or f"findings/token-selector/bridge-{args.kind}.md"
+    if args.all_tokens:
+        cfg = _all_tokens_cfg(args.kind, cfg)
+    suffix = ("-all" if args.all_tokens else "") + ("-content" if args.content_only else "")
+    out_path = args.out or f"findings/token-selector/bridge-{args.kind}{suffix}.md"
 
     loaded = [(s, t, disp, _load(cfg, s, t)) for s, t, disp in cfg["models"]]
     have = [(s, t, disp, df) for s, t, disp, df in loaded if df is not None]
+    if args.content_only:
+        have = [(s, t, disp, df.filter(pl.col("region") != "template"))
+                for s, t, disp, df in have if "region" in df.columns]
     if not have:
         print(f"no {args.kind} bridge outputs found under results/bridge/", file=sys.stderr)
         return 1
@@ -252,6 +385,9 @@ def main(argv=None) -> int:
             L.append(f"| {disp} | {mode_disp.get(mode, mode)} | {ins:.2f} (n={ni}) | "
                      f"{out:.2f} (n={no}) | **{lift:+.2f}** [{lo:+.2f}, {hi:+.2f}]{star} |")
     L.append("")
+
+    if args.all_tokens:
+        L.extend(_region_table(have))
 
     L.append("## Q2 — which cheap pre-pass signal predicts where the NLA is on-task?\n")
     L.append("Full table: AUROC of **every** signal vs the judge's on-task label, one row "
