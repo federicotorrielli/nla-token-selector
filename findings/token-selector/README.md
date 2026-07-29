@@ -164,6 +164,45 @@ One real caveat: past ~1024 tokens Gemma's sliding-window layers cannot see the
 first token, so on long Gemma transcripts `sink_drain` should use the
 global-attention layers only.
 
+### What a sink actually is
+
+Sun, Canziani, LeCun and Zhu take the phenomenon apart in *The Spike, the Sparse
+and the Sink* ([arXiv:2603.05498](https://arxiv.org/abs/2603.05498)). Three of
+their findings bear on the signals above.
+
+**A sink belongs to a head, not to a model.** Their definition is per head: a head
+has a sink when some early position receives more than a threshold of the average
+attention, and the "sink ratio" counts the heads that qualify. Head dimension is
+the architectural driver, because separating the sink keys from ordinary keys
+needs room in the per-head space. We average over every head before measuring
+anything, which mixes the heads that carry a sink with the heads that never had
+one.
+
+**A sink is a gate.** Giving a model an explicit gate that depends on the current
+hidden state makes sinks disappear entirely at no cost in perplexity, while gates
+that ignore the input cannot replace them. Parking attention on the first token is
+how a model switches a head off, and sink heads are biased to short range, so the
+purpose of parking is to ignore distant context when it does not help. This is the
+mechanism under `sink_drain`'s flipping sign: reaching out ungates heads to pull
+in far content, holding a secret keeps them gated.
+
+**Spike channels dominate the residual norm and carry no token information.** A few
+channels in the intermediate layers, fixed per model and close to input
+independent, hold values orders of magnitude above the rest, and after
+normalization the tokens carrying them collapse to nearly the same vector. Over
+98% of every vocabulary tested spikes when placed at position 0, so this is
+positional rather than semantic. Two consequences for us: `resid_jump` is a plain
+norm taken at exactly the depth these channels own, so it may be reporting
+proximity to a spike token rather than movement of the state, which would fit its
+record as our weakest signal; and the NLA reads that same layer, so at a spike
+token it is handed something close to a constant.
+
+**Two of our signals are one signal.** If a sink is a per-head gate, `sink_drain`
+and `head_disagreement` both read how many heads have ungated, since gated heads
+park in the same place and therefore agree. Measured: the two pick the same tokens
+at 0.29 to 0.80 (median 0.47), against 0.02 to 0.31 for `entropy` against either.
+That is why combining them buys nothing (`bridge-pooling.md`).
+
 ## How we measure
 
 All signals are computed from a teacher-forced `transformers` pass (the attention
@@ -347,6 +386,10 @@ Tensor Trust pattern in a controlled setting.
   you do not know the threat, attention-geometry (with the right sign) when you do.
 - **The legibility of a threat grows with model size** on the localizable tasks
   (eval-awareness Q1 lift +0.19 → +0.54 from 7B to 27B).
+- **Combining two signals does not help.** `sink_drain` and `head_disagreement`
+  are two readouts of one mechanism, so pooling the tokens they pick never beats
+  the better of the two and often loses. Spending a smaller budget on one signal
+  buys more than any combination of two (`bridge-pooling.md`).
 
 ## The localization pilot (signal vs planted span)
 
@@ -388,10 +431,8 @@ Per threat, ordered by cost:
 - **First, check the base rate.** If the on-task density is high (a fully executed
   attack), no selector helps — explain broadly or not at all.
 - **Do not hedge across two signals.** Pooling the tokens picked by two of them
-  never beats the better one, and often loses; spending a smaller budget on one
-  signal buys more than any combination of two. `sink_drain` and
-  `head_disagreement` are two readouts of one mechanism, which is why combining
-  them adds nothing. See `bridge-pooling.md`.
+  never beats the better one. Pick one signal from the threat and spend a smaller
+  budget on it instead (`bridge-pooling.md`).
 
 ## How much should you trust this?
 
@@ -407,6 +448,13 @@ Per threat, ordered by cost:
 - Still open: OPI *continuation* scoring (generate the injected reply and localize
   the attack-realizing response span) would put the response-side signals on the
   input-side footing.
+- Two position confounds threaten the **all-token** tables specifically, and both
+  are checked by `all_tokens_eval.py position`. Past its 1024-token window a
+  Gemma local layer cannot see token 0, so it contributes nothing to the sink
+  mass and `sink_drain` drifts upward with position on g12 and g27 but not on q7
+  or l70. And the template tokens now in the pool are the ones that spike for
+  architectural reasons, so a signal separating template from content collects
+  AUROC for free; read those tables with `--content-only` alongside.
 
 ## Candidate signals from the literature (2024–26)
 
@@ -443,6 +491,31 @@ training set).
 Skip: entropix-style varentropy sampling (it *is* our entropy + varentropy) and
 attention rollout as a blind score (no notion of "anomalous" without a
 counterfactual).
+
+### Sharper versions of the signals we already have
+
+From the sink mechanism above, best first. The first two are computable from the
+stored activations alone (`all_tokens_eval.py spike`); the rest need a second
+teacher-forced pass, though not a second NLA decode, since the explanations and
+judge labels depend only on the activation and that does not change.
+
+- **Mask the spike channels before `resid_jump`.** The channels are fixed per
+  model and input independent, so they can be found once and dropped. Repairs an
+  existing signal rather than adding one. *Computable now.*
+- **`spike_mass` as a filter.** If on-task rate falls with it, a threshold
+  discards part of the budget before any NLA call. *Computable now.*
+- **Restrict the attention signals to sink heads.** Label the heads once per model
+  by the paper's criterion, then measure drain only in those. Makes the signal
+  cheaper as well as sharper, since fewer heads have to be read.
+- **Count open gates rather than averaging attention mass.** If the mechanism is a
+  per-head switch, the native measurement is how many heads dropped below their
+  own sink baseline, which one head with a large excursion cannot drag around.
+- **Count delimiters in the sink span.** Full stops and newlines become secondary
+  sinks by attending to themselves, so attention can leave the first token and
+  still be parked. Our span is the template prefix or the first four tokens, and
+  templates are dense in newlines.
+- **Attention distance per head.** Gating and range are tied, so mean distance is
+  a direct readout and the attention row is already in hand.
 
 ## Engineering notes
 
