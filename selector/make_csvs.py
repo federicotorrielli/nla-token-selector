@@ -2,10 +2,8 @@
 One row per token: identity + label + on_task + every cheap signal. No activations.
 
 Default: the original probed-subset outputs -> paper_results/bridge/{kind}_{s}.csv.
-`--all`: the all-token outputs (shard dirs) -> paper_results/bridge/all_{kind}_{s}.csv.gz
-(gzipped: the all-token tables run to millions of rows)."""
-import gzip
-import io
+`--all`: the all-token tables -> paper_results/bridge/all_{kind}_{s}.parquet
+(parquet: these run to millions of rows and do not fit git as CSV)."""
 import sys
 from pathlib import Path
 
@@ -54,26 +52,13 @@ def subset_csvs() -> None:
 
 
 def all_token_csvs() -> None:
-    for kind, (shorts, _tmpl, _key, _cols) in SIG.items():
-        cols = ALL_SIG + (["attn_rollout"] if kind == "opi" else [])
-        for s in shorts:
-            ot_dir = BR / f"all_{kind}_{s}_ontask"
-            corp_dir = BR / f"all_{kind}_{s}_corpus"
-            if not ot_dir.is_dir() or not corp_dir.is_dir():
-                continue
-            ot = (pl.scan_parquet(str(ot_dir / "*.parquet")).collect()
-                  .with_columns(pl.col("position_id").cast(pl.Int64)))
-            right = (pl.scan_parquet(str(corp_dir / "*.parquet"))
-                     .select(["position_id", "region", "probe_tok_idx", *cols])
-                     .collect()
-                     .with_columns(pl.col("position_id").cast(pl.Int64)))
-            df = ot.join(right, on="position_id", how="left").sort("position_id")
-            out = OUT / f"all_{kind}_{s}.csv.gz"
-            buf = io.BytesIO()
-            df.write_csv(buf)
-            with gzip.open(out, "wb") as f:
-                f.write(buf.getvalue())
-            print(f"{out}  ({df.height} rows, {df.width} cols)")
+    """The consolidated tables minus the explanation text."""
+    for p in sorted(BR.glob("all_*.parquet")):
+        df = pl.read_parquet(p).drop("explanation", strict=False)
+        out = OUT / p.name
+        df.write_parquet(out, compression="zstd", compression_level=9)
+        print(f"{out}  ({df.height} rows, {df.width} cols, "
+              f"{out.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

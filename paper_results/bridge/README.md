@@ -2,10 +2,22 @@
 
 One CSV per experiment and model. Each row is a single token at which we ran the
 NLA and asked the judge whether the explanation was on-task. These are the raw
-numbers behind the three findings write-ups; open any file in a spreadsheet.
+numbers behind the findings write-ups; open any file in a spreadsheet.
+
+Two families of file:
+
+- `{kind}_{model}.csv` — the original probed subset (injected input span, or the
+  first response tokens).
+- `all_{kind}_{model}.parquet` — **every** token of the full rendered transcript,
+  chat template included: 4.7M rows across the five benchmarks and four models.
+  These are the tables behind `findings/token-selector/bridge-*-all.md`.
+
+The `all_*` files are parquet rather than CSV because the same data as CSV runs
+to 336 MB and one file lands over GitHub's 100 MB limit. `polars.read_parquet`
+or `pandas.read_parquet` open them.
 
 - Design, hypotheses, statistics, controls: `findings/token-selector/bridge-experiment-design.md`
-- Hand cases (pilot): `findings/token-selector/bridge-nla-selection.md` → `hand_*.csv`
+- Hand cases (pilot): `findings/token-selector/bridge-hand.md` → `hand_*.csv`
 - Prompt injection (OpenPromptInjection, all 800 cases): `findings/token-selector/bridge-opi.md` → `opi_*.csv`
 - Real lies (Liars' Bench, on-policy): `findings/token-selector/bridge-liars.md` → `liars_*.csv`
 
@@ -38,6 +50,23 @@ Cheap signals (each computed in one teacher-forced forward pass, before any NLA 
 `head_disagreement` = attention-head disagreement (entropy of the head-mean map
 minus the mean per-head entropy, summed over layers). `sink_drain` = how much
 attention drains onto the early sink tokens. `w` = z(sink_drain) − z(lookback_ratio).
+
+The `all_*` files carry the eight blind signals above (plus `attn_rollout` on
+opi), a `region` column (`template`, `system`, `user`, `assistant`,
+`assistant_prior`), `probe_tok_idx` (the token's index in the old probed subset,
+−1 if it was not probed then), and four columns read straight from the stored
+activation at the NLA layer:
+
+| column | meaning |
+|---|---|
+| `act_norm` | norm of the activation the NLA reads |
+| `norm_ratio` | `act_norm` over the median for the same shard; a token carrying a massive activation stands orders above its neighbours |
+| `peak_ratio` | largest single channel over the root mean square |
+| `dominant_mass` | share of the squared norm held by the channels that dominate it |
+| `resid_jump_nla` | ‖h_t − h_{t−1}‖ at the NLA layer with those channels dropped. Distinct from `resid_jump`, which is taken at the final layer. |
+
+The NLA explanation text is not included; it lives in the pipeline's own
+`results/bridge/all_{kind}_{model}.parquet`.
 
 ## Reading it
 
