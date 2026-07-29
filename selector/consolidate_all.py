@@ -31,7 +31,8 @@ KINDS = {"hand": ["q7", "g12", "g27", "l70"], "opi": ["q7", "g12", "g27", "l70"]
          "tt": ["q7", "g12", "g27", "l70"], "taboo": ["q7", "g12", "g27", "l70"],
          "liars": ["g27", "l70"]}
 # written by all_tokens_eval.py spike
-SPIKE_COLS = ["spike_mass", "peak_ratio", "act_norm", "resid_jump_masked"]
+SPIKE_COLS = ["dominant_mass", "peak_ratio", "act_norm", "norm_ratio",
+               "resid_jump_nla"]
 
 
 def _scan_dir(d: Path):

@@ -10,15 +10,10 @@ activation per token) and the consolidated per-token tables.
     python selector/all_tokens_eval.py --selftest
 
 `spike` writes results/bridge/all_{kind}_{model}_spike/, which
-consolidate_all.py joins into the canonical table:
-
-    spike_mass          share of the squared norm held by the spike channels
-    peak_ratio          largest |channel| over the root mean square
-    act_norm            norm of the activation
-    resid_jump_masked   ||h_t - h_{t-1}|| with the spike channels dropped
-
-Sun et al., arXiv:2603.05498, show those channels are fixed per model, close to
-input independent, and dominant in the intermediate layers the NLA reads.
+consolidate_all.py joins into the canonical table. See spike_stats for the
+columns. Sun et al., arXiv:2603.05498, show that a few channels dominate the
+intermediate layers the NLA reads, and that the tokens carrying massive
+activations are mostly the first token and delimiters.
 """
 
 from __future__ import annotations
@@ -48,28 +43,49 @@ GEMMA = {"g12", "g27"}       # Gemma-3 local layers carry a 1024-token window
 # --------------------------------------------------------------- spike columns
 
 def _acts(df: pl.DataFrame) -> np.ndarray:
-    return np.asarray(df["activation"].to_list(), dtype=np.float32)
+    # the column is a fixed-size Array, so to_numpy is zero-copy; going via
+    # to_list costs seconds per 20k rows and builds the whole thing in Python
+    a = df["activation"].to_numpy()
+    return a if a.ndim == 2 else np.stack(a).astype(np.float32)
 
 
 def spike_channels(acts: np.ndarray, factor: float = SPIKE_FACTOR) -> np.ndarray:
-    """Channels whose median magnitude exceeds `factor` times the typical one."""
+    """Channels whose median magnitude exceeds `factor` times the typical one.
+
+    These are the channels that dominate the norm at every position, not the
+    ones that spike in a minority of tokens. Spike *tokens* are identified by
+    norm_ratio instead, which needs no channel set.
+    """
     typical = np.median(np.abs(acts), axis=0)
     return np.flatnonzero(typical > factor * np.median(typical))
 
 
 def spike_stats(acts: np.ndarray, spike: np.ndarray) -> dict[str, np.ndarray]:
-    """Per-token spike statistics. Row order is token order within a transcript."""
+    """Per-token activation statistics. Row order is token order in a transcript.
+
+    dominant_mass    share of the squared norm in the norm-dominating channels
+    peak_ratio       largest |channel| over the root mean square
+    act_norm         norm of the activation
+    norm_ratio       act_norm over the median act_norm of the same shard; a
+                     spike token carries a massive activation and so stands
+                     orders above its neighbours
+    resid_jump_nla   ||h_t - h_{t-1}|| at the NLA layer, dominating channels
+                     dropped. Distinct from the corpus `resid_jump`, which is
+                     taken at the final layer where the spikes are neutralised.
+    """
     sq = acts.astype(np.float64) ** 2
     total = sq.sum(axis=1)
     d = acts.shape[1]
     keep = np.setdiff1d(np.arange(d), spike)
     diff = np.diff(acts[:, keep].astype(np.float64), axis=0)
+    norm = np.sqrt(total)
     return {
-        "spike_mass": (sq[:, spike].sum(axis=1) / np.maximum(total, 1e-30)
-                       if spike.size else np.zeros(len(acts))),
+        "dominant_mass": (sq[:, spike].sum(axis=1) / np.maximum(total, 1e-30)
+                          if spike.size else np.zeros(len(acts))),
         "peak_ratio": np.abs(acts).max(axis=1) / np.sqrt(np.maximum(total / d, 1e-30)),
-        "act_norm": np.sqrt(total),
-        "resid_jump_masked": np.concatenate([[np.nan], np.linalg.norm(diff, axis=1)]),
+        "act_norm": norm,
+        "norm_ratio": norm / max(float(np.median(norm)), 1e-30),
+        "resid_jump_nla": np.concatenate([[np.nan], np.linalg.norm(diff, axis=1)]),
     }
 
 
@@ -97,8 +113,8 @@ def run_spike() -> None:
                     **{k: pl.Series(v) for k, v in spike_stats(_acts(df), spike).items()}
                 ).with_columns(
                     pl.when(pl.col("case_id") != pl.col("case_id").shift(1))
-                    .then(None).otherwise(pl.col("resid_jump_masked"))
-                    .alias("resid_jump_masked")
+                    .then(None).otherwise(pl.col("resid_jump_nla"))
+                    .alias("resid_jump_nla")
                 ).drop("case_id")
                 tmp = dst.with_suffix(".tmp.parquet")
                 frame.write_parquet(tmp)
@@ -339,13 +355,13 @@ def _selftest() -> None:
     spike = spike_channels(acts)
     assert spike.tolist() == [7, 31], f"spike channels: {spike.tolist()}"
     st = spike_stats(acts, spike)
-    assert st["spike_mass"].mean() > 0.9, "planted channels must dominate the norm"
-    assert np.isnan(st["resid_jump_masked"][0]), "first token has no predecessor"
+    assert st["dominant_mass"].mean() > 0.9, "planted channels must dominate the norm"
+    assert np.isnan(st["resid_jump_nla"][0]), "first token has no predecessor"
     plain = np.linalg.norm(np.diff(acts.astype(np.float64), axis=0), axis=1)
-    assert plain.mean() > 20 * st["resid_jump_masked"][1:].mean(), "masking must bite"
+    assert plain.mean() > 20 * st["resid_jump_nla"][1:].mean(), "masking must bite"
     flat = rng.normal(0, 1, (n, d)).astype(np.float32)
     assert spike_channels(flat).size == 0, "no spikes in a flat matrix"
-    assert spike_stats(flat, np.array([], int))["spike_mass"].max() == 0.0
+    assert spike_stats(flat, np.array([], int))["dominant_mass"].max() == 0.0
 
     # budget 2 over 10 tokens; each signal finds one of the two on-task tokens
     # and one decoy, so pooling must reach 1.0 where either alone reaches 0.5
