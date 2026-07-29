@@ -9,7 +9,7 @@ model:
   Q2  Which cheap pre-pass signal best predicts where the NLA is on-task?
 
 Usage:
-    python selector/bridge_report.py --out findings/token-selector/bridge-nla-selection.md
+    python selector/bridge_report.py --out findings/token-selector/bridge-hand.md
 """
 
 from __future__ import annotations
@@ -151,8 +151,6 @@ def _q1(df: pl.DataFrame, mode: str, n_boot=2000):
         i, o = yy[ll == 1], yy[ll == 0]
         return i.mean() - o.mean() if i.size and o.size else np.nan
 
-    # The lift only needs four per-case sums, so a resample is a weighted sum
-    # over cases rather than a rebuild of the token index.
     _, cidx = np.unique(cases, return_inverse=True)
     ncase = cidx.max() + 1
     n1 = np.bincount(cidx, weights=(lab == 1).astype(float), minlength=ncase)
@@ -172,15 +170,8 @@ def _q1(df: pl.DataFrame, mode: str, n_boot=2000):
 
 
 def _clustered_boot(cases, scores, y, stat=None, n_boot=2000, seed=0):
-    """Case-cluster bootstrap of the AUROC: resample whole cases, since tokens
-    within a case are correlated. Returns (point, lo95, hi95, p_two_sided),
-    p being the two-sided bootstrap p-value against the null value 0.5.
-
-    The scores never change, only which cases are drawn, so the sort is done
-    once and each resample is a linear pass: weight every token by how often
-    its case was drawn, then accumulate the Mann-Whitney statistic in score
-    order. Ties are folded in through their score group, contributing a half.
-    """
+    """Case-cluster bootstrap of the AUROC. Returns
+    (point, lo95, hi95, p_two_sided) against the null value 0.5."""
     scores = np.asarray(scores, dtype=float)
     y = np.asarray(y, dtype=float)
     keep = ~np.isnan(scores)
@@ -240,7 +231,6 @@ def _bh_fdr(pvals, q=0.05):
 
 
 def _boot_one(args):
-    """One signal's bootstrap, run in a worker process."""
     cases, scores, y, n_boot = args
     return _clustered_boot(cases, scores, y, n_boot=n_boot)
 

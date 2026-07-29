@@ -73,7 +73,7 @@ Q2 is exploratory for all signals (no prior).
 | **OPI injection** | OpenPromptInjection, all 800 cases | input tokens | injected span | ~59% |
 | **Liars' deception** | Liars' Bench, on-policy | response tokens | whole response (lie vs honest) | by design |
 
-The hand cases are the pilot (already run: `bridge-nla-selection.md`). The two
+The hand cases are the pilot (already run: `bridge-hand.md`). The two
 benchmarks are the confirmatory tests. OPI is run at full scale (all 800 cases,
 every input token). Liars' Bench is run at the sample size fixed in §5.2.
 

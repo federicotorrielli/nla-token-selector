@@ -43,35 +43,24 @@ GEMMA = {"g12", "g27"}       # Gemma-3 local layers carry a 1024-token window
 # --------------------------------------------------------------- spike columns
 
 def _acts(df: pl.DataFrame) -> np.ndarray:
-    # the column is a fixed-size Array, so to_numpy is zero-copy; going via
-    # to_list costs seconds per 20k rows and builds the whole thing in Python
     a = df["activation"].to_numpy()
     return a if a.ndim == 2 else np.stack(a).astype(np.float32)
 
 
 def spike_channels(acts: np.ndarray, factor: float = SPIKE_FACTOR) -> np.ndarray:
-    """Channels whose median magnitude exceeds `factor` times the typical one.
-
-    These are the channels that dominate the norm at every position, not the
-    ones that spike in a minority of tokens. Spike *tokens* are identified by
-    norm_ratio instead, which needs no channel set.
-    """
+    """Channels whose median magnitude exceeds `factor` times the typical one."""
     typical = np.median(np.abs(acts), axis=0)
     return np.flatnonzero(typical > factor * np.median(typical))
 
 
 def spike_stats(acts: np.ndarray, spike: np.ndarray) -> dict[str, np.ndarray]:
-    """Per-token activation statistics. Row order is token order in a transcript.
+    """Per-token activation statistics, rows in token order.
 
-    dominant_mass    share of the squared norm in the norm-dominating channels
+    dominant_mass    share of the squared norm in the `spike` channels
     peak_ratio       largest |channel| over the root mean square
     act_norm         norm of the activation
-    norm_ratio       act_norm over the median act_norm of the same shard; a
-                     spike token carries a massive activation and so stands
-                     orders above its neighbours
-    resid_jump_nla   ||h_t - h_{t-1}|| at the NLA layer, dominating channels
-                     dropped. Distinct from the corpus `resid_jump`, which is
-                     taken at the final layer where the spikes are neutralised.
+    norm_ratio       act_norm over the shard median
+    resid_jump_nla   ||h_t - h_{t-1}|| at the NLA layer, `spike` channels dropped
     """
     sq = acts.astype(np.float64) ** 2
     total = sq.sum(axis=1)
