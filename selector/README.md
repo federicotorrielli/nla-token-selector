@@ -25,7 +25,10 @@ the localization studies that produced the paper's headline AUROCs):
 that the other engines and the bridge scripts import.
 
 **Bridge pipeline** (does a cheap signal predict where the NLA lands on-task?),
-run in this order:
+run in this order. This probed a *subset* of tokens per benchmark and is
+superseded by the all-token variant below, which covers every signal it produced.
+Only the 27-case pilot still has its own outputs, because it alone carries the
+referenced signals `kl` and `attn_rollout`.
 
 1. `bridge_extract_*` — one per benchmark: forward the base model, capture the
    NLA-layer activation, the ground-truth label, and the cheap signals into a
@@ -38,10 +41,10 @@ run in this order:
 2. `bridge_run_nla.py` — greedy NLA decode at each token, via its AV SGLang server.
 3. `bridge_judge_ontask.py --judge` — ask the judge (DeepSeek-V4-Flash) whether
    each explanation is on-task (taboo: whether it reveals the secret word).
-4. `bridge_report.py --kind {hand,opi,liars,tt,taboo}` — full per-signal Q1/Q2
-   tables (best-for-task bolded) with clustered-bootstrap intervals, controls, and
-   FDR, written to `findings/token-selector/bridge-*.md`.
-5. `make_csvs.py` — export the tidy per-token CSVs to `paper_results/bridge/`.
+4. `bridge_report.py --kind hand` — full per-signal Q1/Q2 tables
+   (best-for-task bolded) with clustered-bootstrap intervals, controls, and FDR,
+   written to `findings/token-selector/bridge-hand.md`.
+5. `make_csvs.py` — export the pilot's per-token CSVs to `paper_results/bridge/`.
 
 **All-token variant** (every position of the full rendered transcript, chat
 template included — the deployment-realistic pool a selector must rank):
@@ -71,10 +74,17 @@ template included — the deployment-realistic pool a selector must rank):
   after extraction (the cost checkpoint). Env knobs: `MODELS`, `KINDS`,
   `LIMIT`/`NLIMIT` (smoke).
 - `consolidate_all.py` — joins each corpus (minus activations), its
-  explanations, and its judge labels into ONE canonical parquet per benchmark
-  x model, `results/bridge/all_{kind}_{model}.parquet` — the tidy, reusable
-  per-token table for further experiments. The shard directories are pipeline
-  internals; downstream work should read the consolidated files.
+  explanations, its judge labels and the activation-derived columns into ONE
+  canonical parquet per benchmark x model,
+  `results/bridge/all_{kind}_{model}.parquet` — the tidy, reusable per-token
+  table for further experiments. Also derives `w` from `sink_drain` and
+  `lookback_ratio`. The shard directories are pipeline internals; downstream
+  work should read the consolidated files.
+- `all_tokens_eval.py {spike,pool,position,all}` — everything that reads a
+  finished run, no GPU. `spike` writes the activation-derived columns
+  (`act_norm`, `norm_ratio`, `peak_ratio`, `dominant_mass`, `resid_jump_nla`),
+  `pool` the budget analysis, `position` the Gemma-window and template
+  confound checks, `all` the lot in order.
 - `bridge_run_nla.py --engine` — the fast decode path, and what the all-token
   orchestration uses. It drives SGLang **in-process** (no AV server to launch)
   with **continuous batching**: a fixed number of requests stay in flight and
@@ -146,12 +156,17 @@ template included — the deployment-realistic pool a selector must rank):
 # activate the env (needs torch + sglang + the park models cached), then:
 PENV=/path/to/conda/env   # or activate it and skip this
 
-bash selector/run_bridge_opi.sh      # injection (OPI), all models
-bash selector/run_bridge_tt.sh       # injection (Tensor Trust), all models
-bash selector/run_bridge_liars.sh    # deception (Liars'), on-policy models
-bash selector/run_bridge_taboo.sh    # deception (taboo), all models × moon/ship/snow
+bash selector/run_bridge_all_tokens.sh   # the headline run, all benchmarks
+python selector/all_tokens_eval.py all   # spike cols, reports, tables, checks
+```
 
-for k in opi tt liars taboo; do python selector/bridge_report.py --kind $k; done
+The per-benchmark subset scripts (`run_bridge_{opi,tt,liars,taboo}.sh`) are kept
+because they still run, but their outputs are superseded by the all-token
+tables. The pilot is the exception:
+
+```bash
+bash selector/run_bridge_all.sh
+python selector/bridge_report.py --kind hand
 python selector/make_csvs.py
 ```
 

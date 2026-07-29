@@ -24,6 +24,7 @@ import numpy as np
 import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from consolidate_all import _z  # noqa: E402
 from signals import auroc  # noqa: E402
 
 _FOUR = [("q7", "Qwen2.5-7B-Instruct", "Qwen-7B"), ("g12", "gemma-3-12b-it", "Gemma-12B"),
@@ -133,6 +134,9 @@ def _load(cfg: dict, short: str, tag: str):
              .with_columns(pl.col("position_id").cast(pl.Int64))
              .unique(subset=["position_id"], keep="first"))
         df = df.join(x, on="position_id", how="left")
+    if "w" in cfg["signals"] and "w" not in df.columns \
+            and {"sink_drain", "lookback_ratio"} <= set(df.columns):
+        df = df.with_columns((_z("sink_drain") - _z("lookback_ratio")).alias("w"))
     return df
 
 
@@ -272,10 +276,11 @@ def _q2(df: pl.DataFrame, mode: str, signals, primaries, n_boot=2000):
 
 # Signals present in the all-token corpora (bridge_extract_all.py); every one
 # is blind. The old referenced signals (kl, w, attn_rollout except OPI's) do
-# not exist there, so the all-token tables are the blind story only.
+# not exist there: kl needs a counterfactual pass, attn_rollout a known
+# cause span. w is blind and derived in consolidate_all.py.
 ALL_TOKEN_SIGNALS = ["surprisal", "entropy", "varentropy", "temporal_kl",
                      "resid_jump", "lookback_ratio", "sink_drain",
-                     "head_disagreement"]
+                     "head_disagreement", "w"]
 # Activation-derived (all_tokens_eval.py spike): whether a token is
 # architecturally spiky (Sun et al., arXiv:2603.05498), and resid_jump with the
 # spike channels dropped. Exploratory, so under the FDR family.

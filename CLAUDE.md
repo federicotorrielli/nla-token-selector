@@ -69,24 +69,27 @@ python selector/data/build_tensortrust_cases.py --selftest
 python selector/data/taboo.py --selftest
 ```
 
-A full bridge run needs a GPU, the park models in the local cache, and a launched
-SGLang server. `selector/README.md` has the detail:
-
-```bash
-bash selector/run_bridge_{opi,tt,liars,taboo}.sh
-for k in opi tt liars taboo; do python selector/bridge_report.py --kind $k; done
-python selector/make_csvs.py
-```
-
-The **all-token variant** re-runs the whole pipeline over EVERY token of the full
-rendered transcript (chat template included), reusing the cached NLA explanations
-and judge labels for the previously probed tokens:
+The headline results are the **all-token** run: every token of the full rendered
+transcript, chat template included, 4.7M positions over five benchmarks and four
+models. It needs a GPU, the park models cached, and a launched SGLang server;
+`selector/README.md` has the detail.
 
 ```bash
 bash selector/run_bridge_all_tokens.sh   # MODELS/KINDS/LIMIT/NLIMIT env knobs
-for k in hand opi tt liars taboo; do python selector/bridge_report.py --kind $k --all-tokens; done
-python selector/make_csvs.py --all
+python selector/all_tokens_eval.py all   # spike cols, reports, CSVs, checks
 python selector/bridge_extract_all.py --selftest   # offline check, no GPU
+```
+
+The original per-benchmark scripts (`run_bridge_{opi,tt,liars,taboo}.sh`) probed
+a subset of tokens and are superseded: every signal they produced is in the
+all-token tables. Only the 27-case pilot keeps a subset output, because it alone
+carries the referenced signals `kl` and `attn_rollout`, which need a second pass
+over a counterfactual transcript:
+
+```bash
+bash selector/run_bridge_all.sh
+python selector/bridge_report.py --kind hand
+python selector/make_csvs.py
 ```
 
 ## Traps
@@ -118,7 +121,9 @@ python selector/bridge_extract_all.py --selftest   # offline check, no GPU
   greedily continued past the old 30-token cap up to the original generation
   budget. `consolidate_all.py` collapses each benchmark x model into ONE
   canonical `results/bridge/all_{kind}_{model}.parquet` (everything but the
-  activations) — further experiments should read that, not the shard dirs.
+  activations) — further experiments should read that, not the shard dirs. It
+  also derives `w` from `sink_drain` and `lookback_ratio`, and joins the
+  activation-derived columns written by `all_tokens_eval.py spike`.
 - Configuration arrives as environment variables with the `CNLA_` prefix, which
   dates from the calibrated-nla project this repository was spun out of. They have
   to be set before the package is imported. The top of `bridge_run_nla.py` shows
@@ -147,6 +152,8 @@ individual tokens, 2000 resamples, seed 0, because the tokens inside one transcr
 are correlated. Two controls, a random score and a permutation of the on-task
 labels, sit at 0.5 in every cell. A run where they drift is broken.
 
+The **all-token** tables are the headline; the 27-case pilot is a controlled
+methodology check with wide intervals, not evidence.
 `findings/token-selector/README.md` holds the current results and
 `findings/token-selector/bridge-experiment-design.md` holds the hypotheses, the
 statistics and the controls. Both outrank anything restated here.

@@ -23,12 +23,11 @@ ALL_SIG = ["surprisal", "entropy", "varentropy", "temporal_kl", "resid_jump",
            "lookback_ratio", "sink_drain", "head_disagreement"]
 FOUR = ["q7", "g12", "g27", "l70"]
 
+# Only the hand pilot keeps a subset export: it is the one experiment carrying
+# the referenced signals (kl, w, attn_rollout), which the all-token run does not
+# compute. Every other benchmark is fully covered by all_{kind}_{model}.parquet.
 SIG = {  # experiment -> (shorts, signals-source template, join key, signal cols)
     "hand": (FOUR, "TOKENS", ["case_id", "mode", "tok_idx"], HAND_SIG),
-    "opi":  (FOUR, "opi_{s}_signals.parquet", ["position_id"], [*BLIND7, "attn_rollout"]),
-    "liars": (["l70", "g27"], "liars_{s}_corpus.parquet", ["position_id"], BLIND7),
-    "tt":   (FOUR, "tt_{s}_corpus.parquet", ["position_id"], BLIND7),
-    "taboo": (FOUR, "taboo_{s}_corpus.parquet", ["position_id"], BLIND7),
 }
 
 

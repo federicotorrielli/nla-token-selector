@@ -1,25 +1,23 @@
 # Bridge experiment: raw per-token results
 
-One CSV per experiment and model. Each row is a single token at which we ran the
+One file per experiment and model. Each row is a single token at which we ran the
 NLA and asked the judge whether the explanation was on-task. These are the raw
-numbers behind the findings write-ups; open any file in a spreadsheet.
+numbers behind the findings write-ups.
 
-Two families of file:
-
-- `{kind}_{model}.csv` — the original probed subset (injected input span, or the
-  first response tokens).
 - `all_{kind}_{model}.parquet` — **every** token of the full rendered transcript,
   chat template included: 4.7M rows across the five benchmarks and four models.
-  These are the tables behind `findings/token-selector/bridge-*-all.md`.
+  These are the tables behind `findings/token-selector/bridge-*-all.md`. Parquet
+  rather than CSV because the same data as CSV runs to 336 MB and one file lands
+  over GitHub's 100 MB limit; `polars.read_parquet` or `pandas.read_parquet`
+  opens them.
+- `hand_{model}.csv` — the 27 authored pilot cases, behind
+  `findings/token-selector/bridge-hand.md`. Kept as its own file because it is
+  the only experiment carrying the **referenced** signals `kl` and
+  `attn_rollout`, which need a second forward pass over a counterfactual
+  transcript and so are absent from the all-token run.
 
-The `all_*` files are parquet rather than CSV because the same data as CSV runs
-to 336 MB and one file lands over GitHub's 100 MB limit. `polars.read_parquet`
-or `pandas.read_parquet` open them.
-
-- Design, hypotheses, statistics, controls: `findings/token-selector/bridge-experiment-design.md`
-- Hand cases (pilot): `findings/token-selector/bridge-hand.md` → `hand_*.csv`
-- Prompt injection (OpenPromptInjection, all 800 cases): `findings/token-selector/bridge-opi.md` → `opi_*.csv`
-- Real lies (Liars' Bench, on-policy): `findings/token-selector/bridge-liars.md` → `liars_*.csv`
+Design, hypotheses, statistics and controls:
+`findings/token-selector/bridge-experiment-design.md`.
 
 Model ids: `q7` Qwen2.5-7B, `g12` Gemma-3-12B, `g27` Gemma-3-27B, `l70` Llama-3.3-70B.
 Liars' is on-policy only (`l70`, `g27`): the probed base model is the one that wrote the text.
@@ -39,28 +37,24 @@ Shared identity and outcome, every file:
 
 Cheap signals (each computed in one teacher-forced forward pass, before any NLA call):
 
-- **hand** (`hand_*.csv`): `surprisal`, `entropy`, `varentropy`, `resid_jump`,
-  `temporal_kl`, `lookback_ratio`, `sink_drain`, `head_disagreement`, `w`
-  (blind), plus `kl`, `attn_rollout` (referenced, need a second pass).
-- **opi** (`opi_*.csv`): `in_surprisal`, `in_entropy`, `in_attention` — the same
-  three quantities read on the *input* tokens (this is the injected-input setting).
-- **liars** (`liars_*.csv`): `surprisal`, `entropy`, `varentropy`, `resid_jump`,
-  `lookback_ratio`, `sink_drain`, `head_disagreement` (all blind), on response tokens.
+`hand_*.csv`: `surprisal`, `entropy`, `varentropy`, `resid_jump`, `temporal_kl`,
+`lookback_ratio`, `sink_drain`, `head_disagreement`, `w` (blind), plus `kl` and
+`attn_rollout` (referenced, need a second pass).
 
 `head_disagreement` = attention-head disagreement (entropy of the head-mean map
 minus the mean per-head entropy, summed over layers). `sink_drain` = how much
 attention drains onto the early sink tokens. `w` = z(sink_drain) − z(lookback_ratio).
 
-The `all_*` files carry the eight blind signals above (plus `attn_rollout` on
+The `all_*` files carry the nine blind signals above (plus `attn_rollout` on
 opi), a `region` column (`template`, `system`, `user`, `assistant`,
 `assistant_prior`), `probe_tok_idx` (the token's index in the old probed subset,
-−1 if it was not probed then), and four columns read straight from the stored
+−1 if it was not probed then), and five columns read straight from the stored
 activation at the NLA layer:
 
 | column | meaning |
 |---|---|
 | `act_norm` | norm of the activation the NLA reads |
-| `norm_ratio` | `act_norm` over the median for the same shard; a token carrying a massive activation stands orders above its neighbours |
+| `norm_ratio` | `act_norm` over the shard median; a token carrying a massive activation stands orders above its neighbours |
 | `peak_ratio` | largest single channel over the root mean square |
 | `dominant_mass` | share of the squared norm held by the channels that dominate it |
 | `resid_jump_nla` | ‖h_t − h_{t−1}‖ at the NLA layer with those channels dropped. Distinct from `resid_jump`, which is taken at the final layer. |
@@ -73,5 +67,5 @@ The NLA explanation text is not included; it lives in the pipeline's own
 Q1 (localization): within one file and `mode`, compare `on_task` mean for
 `label==1` against `label==0`. Q2 (prediction): rank signals by how well they
 separate `on_task==1` from `on_task==0` (AUROC). The findings docs report both
-with case-cluster bootstrap 95% intervals; these CSVs let you recompute or
+with case-cluster bootstrap 95% intervals; these tables let you recompute or
 re-slice them. Regenerated by `selector/make_csvs.py`.
