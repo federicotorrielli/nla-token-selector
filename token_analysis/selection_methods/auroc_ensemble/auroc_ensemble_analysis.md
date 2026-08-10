@@ -109,33 +109,358 @@ full-data fit is used only for the descriptive positional curve.
 ### Segment-comparison figures
 
 Files named `<dataset>_auroc_ensemble_{best,shared}_segment_comparison` contain
-three panels for every model:
+three panels for every model. They use the **fixed all-token winner**, not the
+independently selected segment winners in `auroc_ensemble_selection.md`. Before
+any segment is compared, the candidate identity, component weights,
+model-specific pooled rank mappings, component directions, and final candidate
+direction are frozen. The score is not re-ranked or re-oriented inside a
+segment. This makes the panels comparable across segments and prevents an
+optimistically reselected candidate for every region.
 
-- **Within-segment case-macro AUROC** applies the frozen all-token winner and
-  its frozen mapping to one segment, computes AUROC separately in every case
-  containing both judge classes in that segment, and averages cases. Error bars
-  are descriptive pointwise whole-case intervals.
-- **Mean all-token relevance percentile** asks whether a segment receives high
-  ranks relative to the entire transcript. It is a concentration statistic,
-  not a classification rate.
-- **High-rank enrichment** is an auxiliary spatial-concentration view. The
-  area-level conclusions below rely primarily on on-task prevalence, mean
-  percentile, and within-segment case-macro AUROC rather than treating this
-  panel as an exact-token objective.
+For `model_best`, the candidate is selected separately for each model--dataset
+pair. For `dataset_shared`, the component names and weights are common to all
+models in a dataset, but pooled rank mappings and directions are still fitted
+separately by model. The segment calculations are otherwise identical.
 
-Each segment label also prints `on-task`, the fraction of its token
-verbalizations judged relevant, and `tmpl`, the fraction of tokens assigned to
-the corrected template region. On-task rate is a property of the labelled
-segment, not of the selected metric.
+#### Analysis population and notation
+
+Let $c$ index cases, $t$ index finite-score tokens, and
+$R\in\{\text{input},\text{boundary},\text{output}\}$ denote a segment. OPI has
+no output. Liars chat-template trailers are excluded before ranks, budgets,
+summaries, and plots are calculated. Input contains everything before the final
+generation prompt, including earlier scaffolding and Liars prior-assistant
+turns. Boundary is the final contiguous generation-prompt run, normally five
+tokens after the documented Tensor Trust corrections. Output is final assistant
+content.
+
+Write $s_{ct}$ for the frozen, finally aligned ensemble score and
+$y_{ct}\in\{0,1\}$ for the NLA judge label. Here 1 means that the
+already-generated NLA verbalisation was judged on-task. Non-finite component
+values are not imputed: an ensemble score exists only where both components are
+finite. The figure therefore measures retrospective association with the judge
+label. It does not observe NLA quality before verbalisation or establish that
+selecting a token causes better downstream auditing.
+
+##### Symbol key
+
+| Symbol | Plain-language meaning |
+|---|---|
+| $c$ | One case: a complete transcript for one dataset example and probed model |
+| $t$ | One token position in that transcript |
+| $R$ | The segment being examined: input, boundary, or output |
+| $T_c$ | All finite-score, non-trailer token positions available in case $c$ |
+| $s_{ct}$ | The frozen ensemble score for token $t$ in case $c$; larger means that the selected rule ranks the token as more likely to yield an on-task NLA verbalisation |
+| $y_{ct}$ | The observed NLA-judge label: 1 for on-task and 0 for off-task |
+| $|S|$ | The number of elements in set $S$; for example, $|T_c|$ is the number of available tokens in a case |
+| $\bar x$ | An average of case-level values, so each contributing case receives one vote |
+
+Subscripts identify the unit being described. For example, $A_{cR}$ is the
+AUROC for case $c$ within segment $R$, whereas $\bar A_R$ is the average of
+those case-level AUROCs for segment $R$.
+
+#### Panel 1: within-segment case-macro AUROC
+
+For each case and segment containing at least one positive and one negative
+finite-score token, the code computes the tie-aware AUROC
+
+$$
+A_{cR}
+=
+\Pr(s_{ct^+}>s_{ct^-}\mid t^+,t^-\in R)
++\tfrac12\Pr(s_{ct^+}=s_{ct^-}\mid t^+,t^-\in R).
+$$
+
+In this formula, $t^+$ is an on-task token and $t^-$ is an off-task
+token from the same case and segment. $\Pr(\cdot)$ means the fraction of all
+such positive--negative pairs for which the statement is true. The first term
+counts correctly ordered pairs. The second term awards half credit when the two
+scores tie. Thus, if $A_{cR}=0.80$, an on-task token outranks an off-task token
+in 80% of pairwise comparisons after tie adjustment; it does not mean that 80%
+of tokens are on-task.
+
+The plotted dot is the unweighted mean across eligible cases,
+
+$$
+\bar A_R=\frac{1}{|\mathcal E_R|}\sum_{c\in\mathcal E_R}A_{cR},
+$$
+
+where $\mathcal E_R$ contains only cases with both judge classes in $R$.
+`eligible n` is $|\mathcal E_R|$. It can be much smaller than the total case
+count when on-task labels are rare, as in Liars, or nearly universal, as at the
+Tensor Trust boundary. Every eligible transcript has equal weight regardless
+of its length or class counts.
+
+Here $\mathcal E_R$ is the set of eligible cases and
+$|\mathcal E_R|$ is the printed `eligible n`. The summation adds their AUROCs
+and division by the number of cases gives the macro average.
+
+The vertical scale has the following direct interpretation:
+
+| Panel-1 value | Meaning |
+|---:|---|
+| 0 | Every comparable positive--negative pair is ordered in the wrong direction |
+| below 0.5 | The globally aligned score reverses direction locally in this segment |
+| 0.5 | Chance pairwise ordering |
+| above 0.5 | On-task tokens tend to outrank off-task tokens within the segment |
+| 1 | Every comparable pair is ordered correctly |
+
+The distance from 0.5 describes ranking strength, but there is no universal
+threshold for a scientifically or operationally important effect. That depends
+on the NLA budget and the cost of false positives. A value below 0.5 is possible
+because direction is frozen globally, not re-fit by segment. It should not be
+silently replaced by $1-A_{cR}$ in this plot because doing so would change the
+fixed selection rule after seeing the segment.
+
+The row label's `AUROC` is different: it pools all finite tokens from all
+segments and cases for the full-data winner. `held-out AUROC` is the pooled
+out-of-fold result of refitting mappings, directions, and candidate selection on
+each training fold and applying them to unseen cases. Neither row-label value is
+the dot in panel 1, and the held-out value validates overall case
+generalisation rather than the exact full-data segment profile. For these
+overall AUROCs, 0.5 is chance and 1 is perfect pooled ordering. A high full-data
+value with a similar held-out value suggests that the complete selection
+procedure is stable on new cases from the same model and dataset. A material
+held-out drop would indicate full-data optimism or case shift. Similar values
+do not independently validate the precise peaks and troughs in the descriptive
+position or segment figures.
+
+#### Panel 2: mean all-token relevance percentile
+
+The frozen score is converted to a fractional midrank within each complete
+case, using all finite input, boundary, and output tokens together:
+
+$$
+p_{ct}
+=
+\frac{\operatorname{midrank}_{u\in T_c}(s_{cu})-1}{|T_c|-1},
+$$
+
+where $T_c$ contains the case's finite non-trailer tokens. Ties receive their
+average rank; the exceptional one-token case is assigned 0.5. The code first
+averages percentiles over a case's tokens in segment $R$, then gives every case
+with a finite score in that segment one vote:
+
+$$
+M_{cR}=\frac{1}{|T_c\cap R|}\sum_{t\in T_c\cap R}p_{ct},
+\qquad
+\bar M_R=\frac{1}{|\mathcal C_R|}\sum_{c\in\mathcal C_R}M_{cR}.
+$$
+
+Here `midrank` is the token's rank after tied scores receive their average
+rank. Subtracting 1 and dividing by $|T_c|-1$ rescales the smallest and largest
+possible ranks to 0 and 1. $T_c\cap R$ means the tokens that are both available
+in case $c$ and members of segment $R$. $M_{cR}$ averages their percentiles
+inside one case; $\mathcal C_R$ is the set of cases contributing to that
+segment; and $\bar M_R$ averages the case means.
+
+The plotted dot is $\bar M_R$. A value of 0.75 means that tokens in the segment
+have, on average, the 75th-percentile frozen score relative to other candidate
+tokens in the same transcript. It does **not** mean that 75% are on-task, that
+75% will yield a useful verbalisation, or that the selector is 75% accurate.
+The dashed 0.5 line is the centre of the within-case rank scale. Above it means
+the score globally prioritises the segment; below it means the score
+deprioritises it. After the winner and direction have been fixed, this panel
+uses positions and scores, not $y$, so it measures score location rather than
+label discrimination.
+
+| Panel-2 value | Meaning |
+|---:|---|
+| near 0 | The segment is concentrated near the bottom of each transcript's score ranking |
+| 0.25 | Its average token lies around the lower quartile |
+| 0.5 | Its average token lies around the middle of the within-case score ranking |
+| 0.75 | Its average token lies around the upper quartile |
+| near 1 | The segment is concentrated near the top of the score ranking |
+
+“High” and “low” are therefore relative to other tokens in the same transcript,
+not absolute signal magnitudes. A high value says where the selection rule
+spends attention; only panel 1 and the printed `on-task` rate say whether this
+location agrees with the judge labels.
+
+#### Panel 3: high-rank enrichment
+
+For budget $q\in\{0.01,0.10\}$, let $K_{cq}$ contain the
+$k=\max(1,\lceil q|T_c|\rceil)$ highest-scoring tokens in case $c$. Segment
+representation in that top-score budget is divided by the segment's available
+finite-token share:
+
+$$
+E_{cRq}
+=
+\frac{|K_{cq}\cap R|/|K_{cq}|}{|T_c\cap R|/|T_c|},
+\qquad
+\bar E_{Rq}
+=
+\frac{1}{|\mathcal C_R|}\sum_{c\in\mathcal C_R}E_{cRq}.
+$$
+
+Here $q$ is the budget fraction: 0.01 for the top 1% and 0.10 for the
+top 10%. The ceiling in $k=\max(1,\lceil q|T_c|\rceil)$ converts that fraction
+to a whole number of selected tokens and guarantees at least one. $K_{cq}$ is
+that selected set. In $E_{cRq}$, the numerator is the segment's share of the
+selected set and the denominator is its share of all available tokens. Their
+ratio is the within-case enrichment. $\bar E_{Rq}$ then averages those ratios
+over cases.
+
+Circles show $\bar E_{R,0.01}$ and open squares show
+$\bar E_{R,0.10}$. The dashed 1 line means representation proportional to
+segment length. A value of 2 means that the segment supplies twice the share of
+top-ranked tokens expected from its available token share. A value of 0 means
+that no token from that segment enters the top set in the contributing cases.
+The plotted statistic is a mean of per-case ratios, not a ratio of pooled token
+counts. A deterministic stable ordering resolves ties at the selection cutoff.
+
+| Panel-3 value | Meaning |
+|---:|---|
+| 0 | The segment supplies none of the selected top-score tokens |
+| 0.5 | It supplies half as many as expected from its available-token share |
+| 1 | It is represented exactly in proportion to its available-token share |
+| 2 | It is represented at twice its available-token share |
+| above 1 | Overrepresentation among the globally highest-scoring tokens |
+| below 1 | Underrepresentation among the globally highest-scoring tokens |
+
+Unlike AUROC and percentile, enrichment has no common upper bound of 1. Within a
+case an upper bound is $1/a_{cR}$, where
+$a_{cR}=|T_c\cap R|/|T_c|$ is the segment's availability. A segment occupying
+only 2% of available tokens could therefore reach enrichment 50 if it supplied
+the entire selected set. This denominator effect is why the absolute selected
+share and segment length must be checked alongside very high enrichment.
+
+This is **spatial score enrichment**, not on-task-label enrichment. It is
+neither precision, recall, nor lift in NLA relevance. Short segments can have
+very large enrichment because their availability denominator is small. Putting
+one of five boundary tokens in the top 1% of a long transcript can therefore
+produce a large value even though only one token was selected. The unplotted
+`top_1_share` and `top_10_share` columns report the absolute share of selected
+tokens contributed by the segment.
+
+#### Labels beneath each segment
+
+The labels provide denominator and composition context:
+
+- `tok` is the number of all tokens in the segment, including any token whose
+  selected ensemble score is non-finite;
+- `cases` is the number of cases with at least one finite score in the segment;
+- `on-task` is the token-weighted fraction $\sum y_{ct}/n_R$ over all segment
+  tokens, independent of the selected score; and
+- `tmpl` is the token-weighted fraction assigned to `template` by the corrected
+  `analysis_region`, also independent of the score.
+
+Thus `on-task` estimates the unconditional yield of verbalising a segment,
+whereas panel 1 asks whether the score can order positives and negatives inside
+it. `case_balanced_base_rate` in the summary Parquets instead averages each
+case's prevalence equally; it can differ from the printed rate when transcript
+lengths vary.
+
+The annotation scales are straightforward but should not be conflated with the
+three score panels:
+
+| Annotation value | Meaning |
+|---|---|
+| `on-task 0` | No token verbalisation in the segment was judged on-task |
+| `on-task 0.5` | Half of the segment's tokens were judged on-task |
+| `on-task 1` | Every token in the segment was judged on-task |
+| `tmpl 0` | No segment token is assigned to the corrected template region |
+| `tmpl 1` | Every segment token is assigned to the corrected template region |
+| high `tok` or `cases` | More observations contribute, not necessarily a larger or better effect |
+| low `eligible n` relative to `cases` | Panel 1 is estimated from a selective subset because many cases lack one judge class |
+
+A high `on-task` value means high unconditional verbalisation yield for that
+area, even if panel 1 is near 0.5. A low `on-task` value means most tokens in the
+area are off-task, although a strong panel-1 AUROC may still identify the rare
+useful ones. A high `tmpl` value flags a structural-template interpretation as a
+plausible alternative to semantic aggregation; it is not evidence that the
+scores are invalid.
+
+#### Intervals, dependence, and direct contrasts
+
+Every error bar is a percentile interval from 2,000 deterministic whole-case
+bootstrap replicates with seed 0. The statistic is computed within each case
+first, cases are sampled with replacement, and the replicate mean is recorded.
+Liars is resampled within source-subdataset strata; the other datasets have one
+stratum. For panel 1, cases without both classes have undefined AUROC and are
+removed before resampling. The winner, rank mapping, weights, and directions
+remain fixed in every replicate.
+
+These are pointwise descriptive 95% intervals. They account for clustering of
+tokens within a transcript, but not winner-selection uncertainty,
+fold-assignment uncertainty, judge error, or simultaneous inspection of many
+model--segment panels. Overlap or non-overlap of two separate error bars is not
+a test of a segment difference. The matched-case contrasts in
+`auroc_ensemble_{best,shared}_segment_contrasts.parquet` directly bootstrap
+$A_{cR_1}-A_{cR_2}$ among cases eligible in both segments. A contrast interval
+containing zero means that these data do not resolve the direction; it does not
+demonstrate equivalence.
+
+The plotted quantities map to result columns as follows:
+
+| Figure element | Parquet column | Averaging unit | Reference |
+|---|---|---|---|
+| panel 1 dot and interval | `case_macro_auroc`, `case_macro_auroc_ci_*` | Eligible cases | 0.5 |
+| panel 2 dot and interval | `mean_relevance_percentile`, `mean_relevance_percentile_ci_*` | Cases with a finite segment score | 0.5 |
+| panel 3 circle and interval | `top_1_enrichment`, `top_1_enrichment_ci_*` | Cases with a finite segment score | 1.0 |
+| panel 3 square and interval | `top_10_enrichment`, `top_10_enrichment_ci_*` | Cases with a finite segment score | 1.0 |
+| `on-task` | `token_base_rate` | Tokens | No universal null |
+| `tmpl` | `template_fraction` | Tokens | No universal null |
+| `eligible n` | `auc_case_count` | Cases | Not an effect size |
+
+#### Visual grammar and reading order
+
+In panels 1 and 2, the dot is the point estimate and the vertical capped line is
+its 95% whole-case bootstrap interval. In panel 3, the filled circle is the top
+1% budget and the open square is the top 10% budget. Dashed horizontal lines
+mark the relevant no-discrimination or no-enrichment reference, not a
+significance threshold.
+
+A reliable reading order for one model row is:
+
+1. Read the candidate name, overall `AUROC`, and `held-out AUROC` at left to
+   understand the frozen rule and its same-dataset case generalisation.
+2. Read `tok`, `cases`, `on-task`, and `tmpl` under each segment. For example,
+   `on-task 0.80` means 80% of that segment's token verbalisations were judged
+   on-task; `tmpl 1.00` means every token is template-labelled.
+3. Use panel 2 to see whether the score ranks the segment high or low relative
+   to the whole transcript.
+4. Use panel 3 to see whether the segment actually receives more or less of a
+   strict top-score budget than its length would predict.
+5. Use panel 1 and `eligible n` to judge fine-grained ordering inside the
+   segment. Prefer the matched-case contrast Parquet when comparing two segment
+   AUROCs directly.
+6. Treat the error bars as descriptive sampling uncertainty. Do not read a
+   reference-line crossing as a multiplicity-adjusted hypothesis test.
+
+#### Worked reading example
+
+In the `model_best` OPI/Gemma-3-12B row, the boundary contains 4,000 tokens from
+800 cases, has on-task rate 0.206, and is entirely template-labelled. Its mean
+all-token relevance percentile is 0.757 and top-10% enrichment is 2.277, so the
+frozen score strongly concentrates on this five-token region. However, only
+583 cases contain both judge classes in the boundary and their case-macro AUROC
+is 0.524, close to chance. The valid reading is: "the boundary is a
+high-scoring, moderately higher-prevalence area, but this frozen metric barely
+distinguishes which boundary tokens are on-task". It would be incorrect to read
+0.757 as a relevance probability or 2.277 as a 2.277-fold increase in on-task
+precision.
+
+#### Joint interpretation
 
 A segment can therefore have:
 
-- high on-task rate but weak within-segment AUROC, meaning that the area is
-  promising even though the metric does not reliably order positions inside it;
-- high mean percentile but low on-task rate, suggesting structural score
-  concentration or a confound; or
-- strong within-segment AUROC but only moderate mean percentile, meaning that
-  the metric discriminates inside the segment without globally prioritising it.
+- high on-task rate but weak within-segment AUROC, meaning the area is a useful
+  prior even though the metric cannot reliably order positions inside it;
+- high mean percentile or enrichment but low on-task rate, meaning the score
+  concentrates there without matching label prevalence, consistent with a
+  structural or template confound;
+- strong within-segment AUROC but moderate mean percentile, meaning the score
+  discriminates inside the segment without allocating it much of the global
+  token budget; or
+- high values in all three views, the strongest descriptive evidence that a
+  region is prevalent, globally prioritised, and internally rankable, but still
+  not evidence of causal auditing utility.
+
+For area selection, first inspect `on-task` for unconditional segment yield,
+then panel 2 or 3 for score-budget allocation, and finally panel 1 for evidence
+of fine-grained ordering within the area. The conclusions below use this joint
+reading rather than treating any one panel as an exact-token objective.
 
 ## AUROC values shown in the `model_best` plots
 
@@ -272,6 +597,12 @@ candidate.
 
 ## Plot-by-plot interpretation: `model_best`
 
+Each interpretation below follows the same reading order: unconditional
+`on-task` yield, global score concentration from percentile and enrichment,
+fine-grained within-segment AUROC with its eligible-case support, and finally
+held-out evidence for the overall selection procedure. The bootstrap intervals
+remain descriptive and pointwise throughout.
+
 ### OPI
 
 The files `opi_auroc_ensemble_best_metric_by_position` and
@@ -296,6 +627,22 @@ and 0.299 versus 0.180. Llama reverses this prevalence ordering, 0.098 versus
 versus 0.524 and 0.827 versus 0.566. Thus the boundary is a promising area for
 verbalization, but the Gemma metric is better at discriminating relevant from
 irrelevant positions in the input than among the five boundary tokens.
+
+The high-rank panel turns these mean locations into a budget statement.
+Boundary top-1%/top-10% enrichments are 8.31/5.20 for Qwen, 2.24/2.28 for
+Gemma-12B, 2.88/1.88 for Gemma-27B, and 20.98/5.91 for Llama. Input enrichment
+is below 1 at both budgets for every model, so the frozen rule allocates a
+disproportionate share of its strictest budget to the five-token boundary.
+These ratios are spatial, not relevance lift; Llama's 20.98 is possible because
+the boundary occupies very little of a transcript.
+
+Panel-1 support also changes the strength of the claim. Boundary AUROC is
+defined in 733, 583, 699, and 356 of 800 cases, respectively. The matched
+boundary-minus-input AUROC contrast is unresolved for Qwen, -0.010 with interval
+[-0.027, 0.006], clearly negative for both Gemmas, -0.300 and -0.263, and
+positive for Llama, 0.035 [0.007, 0.063]. Thus all four rules identify the
+boundary as a high-budget area, but only Llama provides evidence that it orders
+tokens better there than in the input.
 
 **Conclusion:** for OPI, inspect the final input token and selected boundary
 ordinals. This is supported by high positional percentiles, higher boundary
@@ -323,6 +670,23 @@ area-prevalence result. Boundary rates are 0.991, 0.969, 0.985, and 0.865, and
 input/output rates are also high. Nearly any boundary verbalization is already
 likely to be judged on-task, regardless of metric.
 
+The budget panel reveals which high-percentile segments actually absorb top
+scores. Qwen's output is the clearest example: mean percentile 0.939 and
+top-1%/top-10% enrichment 32.33/7.84, despite output case-macro AUROC of only
+0.563. Llama instead overallocates to the boundary, 6.05/3.63, while
+Gemma-27B moderately overallocates to both boundary, 2.43/1.55, and output,
+2.04/1.39. These are allocation patterns, not improvements in the already-high
+on-task rate.
+
+Eligibility explains the wide or unstable boundary estimates. Only 67 of
+1,552 Qwen cases, 222 of 1,544 Gemma-12B cases, and 113 of 1,548 Gemma-27B
+cases have both boundary judge classes; Llama has 787 of 1,550. In matched
+cases, boundary-minus-input AUROC is negative for Gemma-12B, Gemma-27B, and
+Llama, with intervals excluding zero; Qwen's -0.002 [-0.084, 0.089] is
+unresolved. The boundary can therefore be an excellent place to spend NLA
+budget because almost every explanation is on-task while offering little
+within-boundary sorting headroom.
+
 **Conclusion:** boundary and response are relevant Tensor Trust areas, but the
 dataset supplies limited evidence that fine-grained metric ordering is needed.
 Its high boundary prevalence should not be conflated with a universally strong
@@ -349,6 +713,21 @@ Gemma and 0.042 for Llama, compared with input rates 0.009 and 0.022. However,
 boundary case-macro AUROC is only 0.422 and 0.338. Exact boundary ordinals 4 and
 5 have elevated on-task rates in the canonical positional data, but the
 selected metrics do not consistently prioritise that same area.
+
+Mean percentile and enrichment expose different failure modes in the two
+models. Gemma assigns output mean percentile 0.827 and top-1%/top-10%
+enrichment 4.83/3.60, yet its output AUROC is 0.422: the score spends budget on
+output while locally ordering its rare positives backwards. Llama gives input
+and boundary similar mean percentiles, 0.574 and 0.572, but their AUROCs are
+0.455 and 0.338. Its output is mildly discriminative at 0.529 while receiving
+mean percentile 0.312 and virtually none of either top budget.
+
+Only 272 Gemma and 390 Llama cases are boundary-AUROC eligible, compared with
+2,000 cases contributing a boundary score. Matched boundary-minus-input
+contrasts are negative in both models, -0.080 [-0.111, -0.049] and -0.142
+[-0.166, -0.118]. Hence the boundary's slightly higher raw prevalence does not
+make either model-specific ensemble a good within-boundary selector, and high
+global pooled AUROC should not be projected onto every segment.
 
 **Conclusion:** Liars supports the final boundary positions as a weak
 prevalence-based area prior, not a universal learned profile. Model-specific
@@ -381,11 +760,31 @@ input positions rises strongly in every model. Boundary ordinal 1 has no
 on-task labels in the current data, while later boundary ordinals carry most
 of the relevant verbalizations.
 
+The strict budgets show that the four model-specific rules operationalise
+this area claim differently. Qwen overrepresents boundary at the top 10%,
+2.67, but not at the top 1%, 0.49; Gemma-12B and Gemma-27B put their top-1%
+budget mainly in input, with enrichment 2.91 and 2.72, even though boundary
+prevalence and AUROC are stronger. Llama is the opposite extreme: boundary
+enrichment is 13.48 at 1% and 7.23 at 10%. A “boundary is useful” conclusion
+therefore does not imply that every winner selects it at every budget.
+
+Boundary AUROC is supported by all 96 cases for Qwen, Gemma-12B, and Llama and
+94 for Gemma-27B; output AUROC uses only 31--69 cases and is correspondingly
+less stable. Matched boundary-minus-input contrasts favour boundary for Qwen
+and both Gemmas, with intervals excluding zero, but favour input for Llama,
+-0.101 [-0.147, -0.057]. This is direct evidence of model heterogeneity, not
+merely overlapping marginal error bars.
+
 **Conclusion:** Taboo provides the clearest evidence for the late input and
 later boundary positions as NLA-verbalization areas. Exact boundary ordinal
 matters; the first boundary token should not be merged with the later slots.
 
 ## Plot-by-plot interpretation: `dataset_shared`
+
+The shared plots use the same reading order, but only candidate identity and
+weights are shared. Each model retains its own rank mappings and directions, so
+agreement in shape is empirical rather than imposed by a common numerical
+scale.
 
 ### OPI
 
@@ -400,6 +799,15 @@ the transfer test: its AUROC falls from 0.729 under
 `peak_ratio@0.50+sink_drain@0.50` to 0.610 under the shared pair. Nevertheless, its boundary mean percentile remains
 0.840. The corresponding input/boundary segment AUROCs are 0.622/0.549. A
 visually high boundary can therefore coexist with weak discrimination.
+
+The budget view makes the Llama tradeoff especially clear. Its shared
+boundary remains strongly overrepresented, with top-1%/top-10% enrichment
+6.08/5.17 and mean percentile 0.840, but within-boundary AUROC is only 0.549
+[0.526, 0.573] across 356 eligible cases. The matched boundary-minus-input
+contrast is -0.082 [-0.107, -0.057]. The shared score therefore finds the same
+transition region while losing much of the model-specific rule's ability to
+choose among its tokens. For Qwen and the Gemmas, candidate identity is
+unchanged, so their segment statistics are exactly the `model_best` values.
 
 **Conclusion:** the shared OPI identity is stable and held-out performance is
 strong for Qwen and both Gemmas. For Llama, use the shared plots to identify a
@@ -421,6 +829,19 @@ for both Gemmas, 0.721 versus 0.548 and 0.617 versus 0.579, but is much worse
 for Llama, 0.358 versus 0.583. Boundary on-task rate remains very high in every
 model.
 
+Score-budget concentration is strongest for the Gemmas: boundary top-1% and
+top-10% enrichment is 31.05/7.41 for Gemma-12B and 24.46/5.73 for Gemma-27B.
+Qwen and Llama are also above availability at the boundary, 3.55/2.62 and
+2.61/1.64. These large ratios say that boundary tokens occupy the score budget;
+they do not override the dense prevalence or eligible-case limitations.
+
+Only 67 Qwen, 222 Gemma-12B, and 113 Gemma-27B cases support boundary AUROC,
+versus 787 Llama cases. The matched boundary-minus-input contrast is clearly
+positive only for Gemma-12B, 0.150 [0.096, 0.206]; it is unresolved for Qwen
+and Gemma-27B and clearly negative for Llama, -0.233 [-0.257, -0.209]. The
+apparently coherent high-boundary shape therefore coexists with sharply
+different local ranking behavior.
+
 **Conclusion:** the shared metric reveals a common structural transition shape,
 especially in the Gemmas, but the mixed within-segment case-macro AUROCs do
 not support a universal within-boundary ordering. Boundary remains a sensible area primarily
@@ -438,6 +859,19 @@ boundary. Mean input/boundary/output percentiles are 0.547/0.148/0.441 for
 Gemma and 0.585/0.263/0.167 for Llama. Within-segment AUROCs also favour input:
 0.638/0.573/0.579 and 0.501/0.293/0.433. Yet boundary on-task rates, 0.036 and
 0.042, exceed the corresponding input rates, 0.009 and 0.022.
+
+The top-budget panel reinforces this disagreement. Input is overrepresented
+for both models, at 1.53/1.39 for Gemma and 1.32/1.31 for Llama at the 1%/10%
+budgets. Boundary contributes no top-1% tokens in the case-macro average and
+almost no top-10% tokens, despite having the highest segment on-task rate.
+Gemma's boundary AUROC of 0.573 is based on 272 cases; Llama's 0.293 is based
+on 390, leaving most of the 2,000 cases ineligible because the segment contains
+only one judge class.
+
+Matched boundary-minus-input contrasts are negative for Gemma, -0.075
+[-0.105, -0.046], and Llama, -0.206 [-0.233, -0.179]. The shared candidate
+thus expresses a consistent input-allocation policy, but it does not turn the
+weak boundary prevalence prior into a useful boundary ranking rule.
 
 **Conclusion:** the shared Liars metric and the raw location prior disagree.
 For suggesting areas to verbalize, retain the final boundary as a weak
@@ -466,10 +900,27 @@ profiles, while exact boundary shapes remain model-family-specific. The shared
 claim is therefore about the boundary **area**, not one universal boundary
 ordinal.
 
+The enrichment panel prevents “consistency” from being overstated. Qwen
+strongly allocates to boundary, 12.09/3.52 at the 1%/10% budgets. Gemma-12B
+allocates its very strict budget more to input, 2.58 versus boundary 0.98, but
+boundary dominates at 10%, 3.79. Gemma-27B assigns zero mean top-1% enrichment
+to boundary and 2.72 to input. Llama assigns essentially no top budget to
+boundary, 0.00/0.02, despite boundary AUROC 0.895 and on-task rate 0.577; its
+global budget instead favours input at 1% and output at 10%.
+
+These are not contradictions. Boundary discrimination asks whether on-task
+tokens outrank off-task tokens *within boundary*, while enrichment asks whether
+boundary outranks other segments. The matched boundary-minus-input AUROC
+contrast is positive for all four models, from 0.114 to 0.173, with every
+interval excluding zero. Boundary AUROC also uses 94--96 cases, whereas output
+uses only 31--69. This supports a shared within-boundary discrimination claim,
+but not a universal boundary-first allocation policy.
+
 **Conclusion:** Taboo supplies the strongest case for focusing NLA
-verbalizations on late input and boundary areas across models. The high
-held-out AUROC stability shows that the pooled signal is not merely a
-full-data visual pattern.
+verbalizations on late input and boundary areas across models. Stable held-out
+AUROC supports case generalisation of the overall shared selection procedure;
+the exact positional peaks and segment allocations remain descriptive
+full-data patterns.
 
 ## Held-out model transfer
 
