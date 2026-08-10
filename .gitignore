@@ -25,3 +25,7 @@ token_analysis/temp.txt
 !token_analysis/selection_methods/auroc_ensemble/results/*.parquet
 !token_analysis/selection_methods/auroc_ensemble/results/model_best/*.parquet
 !token_analysis/selection_methods/auroc_ensemble/results/dataset_shared/*.parquet
+
+!token_analysis/selection_methods/auroc_ensemble/plots/paper/
+!token_analysis/selection_methods/auroc_ensemble/plots/paper/*.pdf
+!token_analysis/selection_methods/auroc_ensemble/plots/paper/*.png

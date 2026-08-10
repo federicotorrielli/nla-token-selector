@@ -39,13 +39,136 @@ commensurable for mixing; the second answers where the selected candidate ranks
 a token relative to other tokens in the same transcript. Neither value is a
 probability.
 
-Each ensemble method folder also contains segment-comparison figures. Their
-three diagnostic columns show the frozen all-token winner’s within-segment
-case-macro AUROC, case-balanced mean all-token relevance percentile, and top-1%
-and top-10% enrichment. Segment-specific winner tables are separate: they
-recompute ranks and selection inside input, boundary, or output and must not be
-used to compare mean rank heights across independently normalized segments.
-Liars trailers are rejected from these summaries and figures.
+### Paper exports
+
+The publication-only exports are in
+`token_analysis/selection_methods/auroc_ensemble/plots/paper/`. They cover all
+four datasets under both `model_best` and `dataset_shared` and use embedded
+STIXGeneral typography for a LaTeX-style serif appearance. They are generated directly from
+the frozen position- and segment-summary Parquets; rendering does not refit a
+selector or recompute a confidence interval. Regenerate all files with:
+
+```bash
+python -m token_analysis.render_auroc_ensemble_paper_plots --overwrite
+```
+
+There are 32 positional PDFs. Eight preserve the model-row layout, one per
+dataset and regime; they retain segment facets, confidence ribbons, and
+composition strips, but omit score metadata, the global title, explanatory top
+and bottom prose, and every per-bin `n` annotation. Eight additional files use
+the suffix `_metric_by_position_aggregated.pdf`. Each has one facet per segment
+and overlays all model curves and their model-specific confidence ribbons using
+stable colors. The aggregate view omits composition strips because token
+provenance is model/tokenizer-specific and has no defined cross-model aggregate.
+
+Eight positional files use the suffix `_metric_by_position_heatmap.pdf`. They
+mirror the original model-row layout: every model and segment has its own
+one-row heatmap panel. A further eight files use the suffix
+`_metric_by_position_heatmap_aggregated.pdf`; these combine all models into one
+model-by-position matrix per segment. Both layouts show the same case-balanced
+mean percentiles on a common 0–1 `RdBu_r` color scale whose midpoint is 0.5.
+Gray denotes an unavailable cell. Heatmaps display point estimates only; use
+the line versions for pointwise whole-case bootstrap intervals. Each of these
+16 heatmaps also has a same-named 600-dpi PNG version. The raster versions avoid
+PDF-renderer seams or interpolation artifacts when figures are embedded in
+LaTeX/Overleaf; the numerical values, bin boundaries, typography, dimensions,
+and color normalization are identical to the corresponding PDFs.
+
+Within each of the four positional layout families (model-row line,
+model-overlay line, model-row heatmap, and model-matrix heatmap), every dataset
+and both selection regimes use exactly the same physical canvas. The respective
+sizes are 10.65 by 12.0, 9.6 by 3.35, 9.6 by 4.87, and 9.6 by 4.17 inches.
+Position exports bypass content-dependent tight cropping, so OPI's two-segment
+layout has the same outer dimensions as the three-segment datasets. The four
+families retain different heights because they contain different numbers of
+axes and forcing one common height would add substantial whitespace or reduce
+readability.
+
+There are 24 segment PDFs: AUROC, mean relevance percentile, and high-rank
+enrichment are separate files for every dataset and regime. Each file overlays
+all available models using the same stable model colors as the standard plots.
+Small horizontal offsets prevent coincident estimates and confidence intervals
+from hiding one another. The model legend retains the unconditional on-task
+rates in input/boundary/output order (`I/B/O`; OPI uses `I/B`). Token counts,
+case counts, eligible-case counts, template fractions, global titles, and
+explanatory top/bottom prose are omitted. In enrichment figures, filled circles
+show the top-1% budget and open squares show the top-10% budget.
+
+### AUROC-ensemble segment-comparison figures
+
+The AUROC-ensemble plot folders also contain files named
+`{dataset}_auroc_ensemble_{best,shared}_segment_comparison`. Each model row
+compares input, boundary, and, where present, output. OPI has no output; Liars
+trailers are rejected from all segment ranks, budgets, summaries, and figures.
+
+Every panel uses the **frozen all-token winner**. Candidate identity, weights,
+model-specific pooled rank mappings, component directions, and final direction
+are fixed before segment evaluation. They are not re-fit inside a segment.
+This matters because it makes segment values comparable and allows a local
+AUROC below 0.5 to expose a genuine direction reversal. Segment-specific winner
+tables answer a different question: they re-run normalization and selection
+inside each segment and must not be used to compare mean score heights across
+segments.
+
+The candidate printed at left is model-specific in `model_best`. In
+`dataset_shared`, component names and weights are common across models, but
+rank mappings and directions remain model-specific. Each row then prints:
+
+- `AUROC`: the displayed frozen candidate's direction-aligned, full-data pooled
+  token AUROC over the whole model--dataset table;
+- `held-out AUROC`: pooled out-of-fold AUROC after mappings, directions, and
+  candidate selection are fitted only on each training fold.
+
+For both, 0.5 is chance and 1 is perfect ordering. Similar full-data and
+held-out values support same-model, same-dataset case generalisation of the
+selection procedure; they do not independently validate the exact descriptive
+segment shape. These row-label values are not the dots in the first panel.
+
+The three diagnostic columns answer different questions:
+
+| Panel | Plotted value | Low, reference, and high values |
+|---|---|---|
+| Within-segment case-macro AUROC | Compute tie-aware AUROC separately in every case with both judge classes in the segment, then average eligible cases equally | 0 is perfectly reversed, below 0.5 is locally reversed, 0.5 is chance, above 0.5 means on-task tokens tend to outrank off-task tokens, and 1 is perfect ordering |
+| Mean all-token relevance percentile | Rank the frozen score across all finite non-trailer tokens within each case, average percentiles within the segment, then average cases equally | near 0 means bottom-ranked, 0.5 means around the transcript's middle rank, and near 1 means top-ranked; this is score location, not relevance probability |
+| High-rank enrichment | Divide a segment's share of the case's top-score set by its share of all available finite tokens, then average case ratios | 0 means absent from the top set, below 1 means underrepresented, 1 means proportional representation, and above 1 means overrepresented |
+
+In panel 3, filled circles use a top-1% per-case budget and open squares use a
+top-10% budget. Enrichment is not bounded by 1: a value of 2 means twice the
+representation expected from segment length. It is **spatial score
+enrichment**, not twofold NLA relevance, precision, or label lift. Short
+boundaries can produce large enrichment because their availability denominator
+is small.
+
+The labels beneath a segment use different denominators from the dots:
+
+- `tok` is its total token count, including non-finite selected scores;
+- `cases` counts cases with at least one finite selected score there;
+- `on-task` is the token-weighted fraction of that segment's NLA
+  verbalisations judged on-task;
+- `tmpl` is the token-weighted corrected-template fraction; and
+- `eligible n` in panel 1 counts only cases containing both judge classes in
+  that segment.
+
+Thus high `on-task` means high unconditional yield even if AUROC is near 0.5;
+high AUROC with low `on-task` means the rule may rank rare positives; and high
+`tmpl` makes a structural-template explanation an important alternative. The
+`on-task` and `tmpl` annotations do not change between `model_best` and
+`dataset_shared` because changing the score does not change tokens, segments,
+or judge labels.
+
+Dots are full-data point estimates and capped vertical lines are descriptive
+pointwise 95% intervals from 2,000 whole-case bootstrap replicates with seed 0.
+Liars is resampled within source-subdataset strata. The winner and score mapping
+remain fixed in every replicate, so the intervals do not include winner
+selection, fold assignment, judge error, or multiple-panel uncertainty.
+Separate interval overlap is not a segment-difference test; use the matched-case
+`*_segment_contrasts.parquet` artifacts for that comparison.
+
+For the full notation, equations, component-by-component explanations, value
+tables, and worked OPI/Gemma example, see
+`selection_methods/auroc_ensemble/auroc_ensemble_analysis.md`.
+
+### Positional figure layout
 
 Each row is one model–dataset combination and reports that combination's
 selected all-token metric. Columns split the transcript into analysis segments.
@@ -414,7 +537,11 @@ ribbons are descriptive, pointwise intervals: they are neither simultaneous
 confidence bands nor formal significance tests. No ribbon is drawn where
 fewer than two cases contribute a finite score.
 
-## What `n` means
+## What `n` means in positional figures
+
+This section concerns the `n` annotation on positional line plots. It is not
+the segment-comparison figure's `eligible n`, which counts only cases with both
+judge classes for a within-segment AUROC.
 
 The annotation in the upper-right of a panel is the number of distinct cases
 contributing a finite selected-metric score to its plotted point:
@@ -456,16 +583,20 @@ contribute.
 
 The narrow stacked strip below a profile describes token provenance and is
 separate from the relevance y-axis. It uses `analysis_region`, so the corrected
-TT token `a` appears as user content; raw `source_region` fractions remain in
-`selection_methods/pooled_auroc/results/model_best/position_plot_summary.parquet` for provenance checks.
+TT token `a` appears as user content. Raw `source_region` fractions remain in
+each regime's position-summary Parquet. For the current ensemble plots these are
+`auroc_ensemble_best_metric_position_summary.parquet` and
+`auroc_ensemble_shared_metric_position_summary.parquet` under the corresponding
+results directories.
 
 ### `response`
 
 Every final-output token is shown with the single visual label `response`. This
 combines TT/Taboo `stored_prefix` and `reconstructed_tail` tokens with Liars
 `dataset_original` tokens, giving the output strip the same meaning across all
-datasets. The detailed provenance fractions remain separate in
-`selection_methods/pooled_auroc/results/model_best/position_plot_summary.parquet` for sensitivity analysis.
+datasets. The detailed provenance fractions remain separate in every regime's
+position-summary Parquet, including both AUROC-ensemble position summaries, for
+sensitivity analysis.
 
 ### Retained `stored_prefix` provenance
 
