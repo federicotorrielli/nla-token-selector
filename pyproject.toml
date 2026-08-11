@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Which token deserves an NLA explanation: cheap pre-pass signals for injection and deception."
 authors = [{ name = "Federico Torrielli", email = "federico.torrielli@unito.it" }]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "pydantic-settings>=2.14.2",
     "pyyaml>=6.0.3",
@@ -42,3 +42,8 @@ ignore = ["E501"]
 
 [tool.uv]
 prerelease = "allow"
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = false
