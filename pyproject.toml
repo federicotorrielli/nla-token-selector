@@ -9,11 +9,11 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "pyyaml>=6.0.3",
     "httpx>=0.28.1",
-    "polars>=1.43.0",
+    "polars>=1.43.2",
     "scipy>=1.18.0",
     "pyarrow>=25.0.0",
-    "sentence-transformers>=5.6.1",
-    "sglang==0.5.16",
+    "sentence-transformers>=5.7.0",
+    "sglang==0.5.17",
     "orjson>=3.11.9",
     "rich>=15.0.0",
 ]
@@ -21,7 +21,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "ruff>=0.16.0",
+    "ruff>=0.16.1",
 ]
 
 [build-system]

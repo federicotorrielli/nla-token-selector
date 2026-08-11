@@ -1,0 +1,31 @@
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.1}
+\caption{The strongest signal of every dataset and model. \emph{Within structure} recomputes the AUROC inside strata of segment, chat role and position bin. \emph{Position} and \emph{structure} are the free rankers of \Cref{sec:bridge}. Every AUROC is direction adjusted.}
+\label{tab:signal-controls}
+\begin{tabular}{@{}llllrrrr@{}}
+\toprule
+Dataset & Model & Signal & Direction & Pooled [95\% CI] & Case-macro & \makecell[r]{Within\\structure} & \makecell[r]{Free\\structure} \\
+\midrule
+OpenPromptInjection & q7 & \texttt{peak\_ratio} & lower & \(0.761\) \([0.757, 0.764]\) & \(0.765\) & \(0.723\) & \(0.786\) \\
+ & g12 & \texttt{resid\_jump\_nla} & higher & \(0.685\) \([0.681, 0.689]\) & \(0.683\) & \(0.668\) & \(0.759\) \\
+ & g27 & \texttt{resid\_jump\_nla} & higher & \(0.635\) \([0.630, 0.639]\) & \(0.625\) & \(0.612\) & \(0.774\) \\
+ & l70 & \texttt{sink\_drain} & higher & \(0.673\) \([0.669, 0.678]\) & \(0.675\) & \(0.598\) & \(0.819\) \\
+\addlinespace
+Tensor Trust & q7 & \texttt{resid\_jump} & higher & \(0.639\) \([0.631, 0.647]\) & \(0.539\) & \(0.603\) & \(0.649\) \\
+ & g12 & \texttt{norm\_ratio} & higher & \(0.719\) \([0.709, 0.729]\) & \(0.523\) & \(0.697\) & \(0.709\) \\
+ & g27 & \texttt{resid\_jump\_nla} & higher & \(0.672\) \([0.662, 0.681]\) & \(0.563\) & \(0.633\) & \(0.658\) \\
+ & l70 & \texttt{resid\_jump\_nla} & higher & \(0.695\) \([0.684, 0.706]\) & \(0.551\) & \(0.672\) & \(0.738\) \\
+\addlinespace
+Liars' Bench & g27 & \texttt{head\_disagreement} & lower & \(0.717\) \([0.704, 0.731]\) & \(0.510\) & \(0.665\) & \(0.915\) \\
+ & l70 & \texttt{head\_disagreement} & lower & \(0.682\) \([0.673, 0.691]\) & \(0.561\) & \(0.540\) & \(0.943\) \\
+\addlinespace
+Taboo organisms & q7 & \texttt{dominant\_mass} & higher & \(0.796\) \([0.784, 0.808]\) & \(0.820\) & \(0.767\) & \(0.850\) \\
+ & g12 & \texttt{dominant\_mass} & higher & \(0.681\) \([0.667, 0.695]\) & \(0.698\) & \(0.713\) & \(0.850\) \\
+ & g27 & \texttt{dominant\_mass} & higher & \(0.651\) \([0.621, 0.677]\) & \(0.617\) & \(0.739\) & \(0.831\) \\
+ & l70 & \texttt{resid\_jump\_nla} & higher & \(0.723\) \([0.700, 0.741]\) & \(0.686\) & \(0.684\) & \(0.904\) \\
+\bottomrule
+\end{tabular}
+\end{table}

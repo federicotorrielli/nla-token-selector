@@ -8,6 +8,19 @@ Shared infrastructure and artifacts remain at the top level:
 
 - `common.py`: shared metadata, regime paths, and small formulas.
 - `audit_bridge_inputs.py`: one audit engine for all eight regimes.
+- `signal_eval.py`: per-signal pooled and case-macro AUROC with whole-transcript
+  bootstrap intervals, direction stability, the position and structure controls,
+  the free-ranker comparison, and signal redundancy. Writes
+  `signal_eval/signal_eval.md`, three parquets, and the two LaTeX tables the
+  paper's signals section uses (`signal_table.tex`, `signal_controls_table.tex`).
+- `budget_eval.py`: what each selector buys at a fixed explanation budget, next
+  to the free position and structure rankers. Writes `budget_eval/budget_eval.md`
+  and two parquets.
+- `table_colour.py`: the one colour ramp the paper's graded tables use, in OKLab,
+  plus `grade_latex` and `ungrade_latex` for shading a tabular in place.
+- `grade_paper_tables.py`: applies that ramp to `paper/tables/*.tex`. It records
+  one scale per column, strips any existing fill before regrading, and is
+  therefore idempotent and safe to rerun after a scale changes.
 - `build_token_position_data.py`: lazy Polars builder for the canonical table.
 - `plot_token_positions.py`: positional and ensemble segment-comparison rendering.
 - `token_position_scores.parquet`: the 4,705,657-row, eight-regime canonical token table.
@@ -164,6 +177,39 @@ conda run --no-capture-output -n pao python token_analysis/selection_methods/cv_
 conda run --no-capture-output -n pao python token_analysis/selection_methods/spearman/select_metrics.py --overwrite
 conda run --no-capture-output -n pao python token_analysis/selection_methods/auroc_ensemble/select_metrics.py --overwrite
 ```
+
+### Per-signal and fixed-budget evaluation
+
+These two read `paper_results/bridge/all_*.parquet` directly, need no canonical
+table, and each carries an offline `--selftest` that needs no data.
+
+```bash
+uv run python token_analysis/signal_eval.py --selftest
+uv run python token_analysis/signal_eval.py
+uv run python token_analysis/budget_eval.py --selftest
+uv run python token_analysis/budget_eval.py
+```
+
+`signal_eval.py` reads `budget_eval/budget_results.parquet` for the free-ranker
+columns, so run `budget_eval.py` first when both are being refreshed. Copy the
+two generated `.tex` tables into `paper/tables/` to update the paper.
+
+### Graded tables
+
+Every table the paper prints lives in `paper/tables/*.tex` and is `\input` from
+`main.tex`. The two signal tables are generated; the rest are hand written and
+shaded afterwards.
+
+```bash
+uv run python token_analysis/table_colour.py --selftest
+uv run python token_analysis/grade_paper_tables.py --check
+uv run python token_analysis/grade_paper_tables.py
+```
+
+An AUROC column is shaded blue above chance and red below, over `0.35` either
+side; a lift is shaded around zero; a rate or a gain is shaded from zero. Adding
+a table means recording its columns in `SPECS`, which also lists the tables
+deliberately left plain.
 
 ### Canonical token table
 
