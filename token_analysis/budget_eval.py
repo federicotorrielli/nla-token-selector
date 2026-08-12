@@ -393,6 +393,49 @@ def evaluate_cell(dataset: str, model: str, pool: str, ens_best: dict, ens_share
     return rows
 
 
+def write_latex_budget(results: pl.DataFrame, out: Path) -> None:
+    """The main-text budget table: what one and eight explanations buy."""
+    from token_analysis.table_colour import sequential_fill
+
+    main = results.filter(pl.col("pool") == "all")
+    names = {"opi": "OpenPromptInjection", "taboo": "Taboo organisms",
+             "liars": "Liars' Bench", "tt": "Tensor Trust"}
+    L = [r"\begin{table}[t]", r"\centering", r"\footnotesize",
+         r"\setlength{\tabcolsep}{4pt}", r"\renewcommand{\arraystretch}{1.1}",
+         r"\caption{Precision at a budget of one and of eight explanations per transcript. "
+         r"\emph{Base} is the on-task share of all positions, which is what choosing at "
+         r"random obtains. \emph{Signal} is the strongest single signal, \emph{Ensemble} the "
+         r"selected pair, and \emph{Structure} the ranker that uses only segment, chat role "
+         r"and position. Shading runs from \(0\) to \(1\).}",
+         r"\label{tab:budget}",
+         r"\begin{tabular}{@{}llrrrrrrr@{}}", r"\toprule",
+         r" & & & \multicolumn{2}{c}{Signal} & \multicolumn{2}{c}{Ensemble}"
+         r" & \multicolumn{2}{c}{Structure} \\",
+         r"\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}",
+         r"Dataset & Model & Base & \(1\) & \(8\) & \(1\) & \(8\) & \(1\) & \(8\) \\",
+         r"\midrule"]
+    previous = None
+    for dataset in ("opi", "taboo", "liars", "tt"):
+        for model in DATASET_MODELS[dataset]:
+            cell = main.filter((pl.col("dataset") == dataset) & (pl.col("model") == model))
+            if not cell.height:
+                continue
+            if previous is not None and dataset != previous:
+                L.append(r"\addlinespace")
+            head = names[dataset] if dataset != previous else ""
+            previous = dataset
+            base = cell.filter(pl.col("selector") == "random")["base_rate"][0]
+            cols = [f"\\cellcolor[HTML]{{{sequential_fill(base, 0.0, 1.0)}}}\\({base:.3f}\\)"]
+            for selector in ("single_best", "ensemble_best", "structure"):
+                row = cell.filter(pl.col("selector") == selector)
+                for column in ("precision_top1", "precision_top8"):
+                    v = row[column][0]
+                    cols.append(f"\\cellcolor[HTML]{{{sequential_fill(v, 0.0, 1.0)}}}\\({v:.3f}\\)")
+            L.append(f"{head} & {model} & " + " & ".join(cols) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    out.write_text("\n".join(L) + "\n")
+
+
 def structural_filter(dataset: str, model: str, input_dir: Path) -> dict:
     """What discarding structural tokens costs and buys. A spike token is one
     whose activation norm is far above the transcript median, in the sense of
@@ -623,6 +666,8 @@ def main(argv=None) -> int:
     results.write_parquet(args.out_dir / "budget_results.parquet")
     filter_frame.write_parquet(args.out_dir / "structural_filter.parquet")
     write_report(results, filter_frame, args.out_dir / "budget_eval.md")
+    if "all" in args.pool:
+        write_latex_budget(results, args.out_dir / "budget_table.tex")
     print(f"\nwrote {args.out_dir}/budget_eval.md and two parquets")
     return 0
 
