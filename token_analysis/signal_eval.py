@@ -518,14 +518,111 @@ def write_latex(results: pl.DataFrame, controls: pl.DataFrame, out: Path) -> Non
 
     L.append(r"\midrule")
     ctl = controls.filter(pl.col("pool") == "all")
-    for label, column, source in (("base rate", "base_rate", main),
-                                  ("position alone", "auroc_position", ctl),
-                                  ("random", "auroc", ctl)):
+    free = (pl.read_parquet(BUDGET_RESULTS).filter(pl.col("pool") == "all")
+            if BUDGET_RESULTS.exists() else None)
+    # `structure` sits beside `position alone` because it is the same free ranker
+    # with the chat template added; a signal earns its forward pass by beating it.
+    footer = [("base rate", "base_rate", main),
+              ("position alone", "auroc_position", ctl)]
+    if free is not None:
+        footer.append(("structure", "pooled_auroc",
+                       free.filter(pl.col("selector") == "structure")))
+    footer.append(("random", "auroc", ctl))
+    for label, column, source in footer:
         cols = []
         for d, m in cells:
             sub = source.filter((pl.col("dataset") == d) & (pl.col("model") == m))
-            cols.append(f"{sub[column][0]:.3f}")
+            cols.append(f"{sub[column][0]:.3f}" if sub.height else "—")
         L.append(rf"\emph{{{label}}} & " + " & ".join(cols) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    out.write_text("\n".join(L) + "\n")
+
+
+def _grouped_header(cells, groups, extra: list[str]) -> list[str]:
+    """The two-row dataset/model header shared by the per-signal tables."""
+    L = [" & " + " & ".join(rf"\multicolumn{{{len(ms)}}}{{c}}{{{DATASET_NAME[d]}}}"
+                            for d, ms in groups) + " &" * len(extra) + r" \\"]
+    start, rules = 2, []
+    for _, ms in groups:
+        rules.append(rf"\cmidrule(lr){{{start}-{start + len(ms) - 1}}}")
+        start += len(ms)
+    L.append("".join(rules))
+    L.append("signal & " + " & ".join(m for _, ms in groups for m in ms)
+             + "".join(f" & {h}" for h in extra) + r" \\")
+    return L
+
+
+def write_latex_direction(results: pl.DataFrame, out: Path) -> None:
+    """The appendix direction table: which sign of a signal selects on-task
+    positions, in every cell. Letters rather than colour, so the pattern survives
+    a monochrome print."""
+    main = results.filter(pl.col("pool") == "all")
+    cells = _cells(main)
+    groups = [(d, [m for dd, m in cells if dd == d]) for d in DATASET_MODELS
+              if any(dd == d for dd, _ in cells)]
+    n_datasets = main["dataset"].n_unique()
+    L = [r"\begin{table}[t]", r"\centering", r"\scriptsize",
+         r"\setlength{\tabcolsep}{3pt}", r"\renewcommand{\arraystretch}{1.1}",
+         r"\caption{Direction of every signal in every cell. \texttt{H} means larger "
+         r"values select on-task positions and \texttt{L} means smaller values do. "
+         r"\emph{Agreeing} counts the datasets whose models share one direction; "
+         r"\emph{minority} counts the cells against the signal's own majority.}",
+         r"\label{tab:signal-direction}",
+         r"\begin{tabular}{@{}l" + "".join("c" * len(ms) for _, ms in groups)
+         + r"rr@{}}", r"\toprule"]
+    L += _grouped_header(cells, groups, ["Agreeing", "Minority"])
+    L.append(r"\midrule")
+
+    last_family = None
+    for signal in SIGNALS:
+        if FAMILY[signal] != last_family:
+            if last_family is not None:
+                L.append(r"\addlinespace")
+            L.append(rf"\multicolumn{{{3 + len(cells)}}}{{l}}{{\emph{{{FAMILY[signal]}}}}} \\")
+            last_family = FAMILY[signal]
+        sig = main.filter(pl.col("signal") == signal)
+        agree = sum(1 for d in DATASET_MODELS
+                    if sig.filter(pl.col("dataset") == d).height
+                    and sig.filter(pl.col("dataset") == d)["direction"].n_unique() == 1)
+        higher = int((sig["auroc"] >= 0.5).sum())
+        marks = [(r"\texttt{H}" if sig.filter((pl.col("dataset") == d)
+                                              & (pl.col("model") == m))["direction"][0]
+                  == "higher" else r"\texttt{L}") for d, m in cells]
+        L.append(rf"\texttt{{{signal.replace('_', r'\_')}}} & " + " & ".join(marks)
+                 + rf" & {agree}/{n_datasets} & {min(higher, len(cells) - higher)} \\")
+    L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    out.write_text("\n".join(L) + "\n")
+
+
+def write_latex_position(results: pl.DataFrame, out: Path) -> None:
+    """The appendix position table: how much of a signal is sequence position,
+    and what the signal still predicts once chat structure is held fixed."""
+    main = results.filter(pl.col("pool") == "all")
+    L = [r"\begin{table}[t]", r"\centering", r"\small",
+         r"\setlength{\tabcolsep}{6pt}", r"\renewcommand{\arraystretch}{1.1}",
+         r"\caption{Sequence position against prediction, over the fourteen cells. "
+         r"\emph{Correlation} is the Spearman correlation with the normalized token "
+         r"index, given as its range. \emph{Within structure} recomputes the AUROC "
+         r"inside strata of segment, chat role and position bin. Both AUROC columns "
+         r"are direction adjusted means.}",
+         r"\label{tab:signal-position}",
+         r"\begin{tabular}{@{}lrrr@{}}", r"\toprule",
+         r"signal & Correlation & Pooled & Within structure \\", r"\midrule"]
+    last_family = None
+    for signal in SIGNALS:
+        if FAMILY[signal] != last_family:
+            if last_family is not None:
+                L.append(r"\addlinespace")
+            L.append(rf"\multicolumn{{4}}{{l}}{{\emph{{{FAMILY[signal]}}}}} \\")
+            last_family = FAMILY[signal]
+        sig = main.filter(pl.col("signal") == signal)
+        rho = sig["rho_position"].to_numpy()
+        pooled = float(sig["auroc_adjusted"].mean())
+        within = float(sig["auroc_structure_adjusted"].mean())
+        L.append(rf"\texttt{{{signal.replace('_', r'\_')}}} & "
+                 rf"\({np.nanmin(rho):+.2f}\) to \({np.nanmax(rho):+.2f}\) & "
+                 rf"\cellcolor[HTML]{{{cell_fill(pooled)}}}\({pooled:.3f}\) & "
+                 rf"\cellcolor[HTML]{{{cell_fill(within)}}}\({within:.3f}\) \\")
     L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
     out.write_text("\n".join(L) + "\n")
 
@@ -571,6 +668,14 @@ def write_latex_controls(results: pl.DataFrame, out: Path) -> None:
                  rf"\({w['auroc_structure_adjusted']:.3f}\) & \({structure}\) \\")
     L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
     out.write_text("\n".join(L) + "\n")
+
+
+def _write_tables(results: pl.DataFrame, controls: pl.DataFrame, out_dir: Path) -> None:
+    """The four LaTeX tables the paper inputs: one main text, three appendix."""
+    write_latex(results, controls, out_dir / "signal_table.tex")
+    write_latex_controls(results, out_dir / "signal_controls_table.tex")
+    write_latex_direction(results, out_dir / "signal_direction_table.tex")
+    write_latex_position(results, out_dir / "signal_position_table.tex")
 
 
 # --------------------------------------------------------------------------- #
@@ -663,6 +768,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--tables-only", action="store_true",
+                    help="rewrite the LaTeX tables from the cached parquets, without"
+                         " recomputing anything")
     ap.add_argument("--datasets", nargs="+", default=list(DATASET_MODELS))
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--pool", nargs="+", default=["all", "content"],
@@ -673,6 +781,13 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.selftest:
         return selftest()
+
+    if args.tables_only:
+        results = pl.read_parquet(args.out_dir / "signal_results.parquet")
+        control_frame = pl.read_parquet(args.out_dir / "signal_controls.parquet")
+        _write_tables(results, control_frame, args.out_dir)
+        print(f"wrote four .tex tables from the cached parquets in {args.out_dir}")
+        return 0
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rows, controls, pairs = [], [], []
@@ -697,9 +812,8 @@ def main(argv=None) -> int:
     pair_frame.write_parquet(args.out_dir / "signal_pairs.parquet")
     write_report(results, control_frame, pair_frame, args.out_dir / "signal_eval.md")
     if "all" in args.pool:
-        write_latex(results, control_frame, args.out_dir / "signal_table.tex")
-        write_latex_controls(results, args.out_dir / "signal_controls_table.tex")
-    print(f"\nwrote {args.out_dir}/signal_eval.md, two .tex tables and three parquets")
+        _write_tables(results, control_frame, args.out_dir)
+    print(f"\nwrote {args.out_dir}/signal_eval.md, four .tex tables and three parquets")
     return 0
 
 

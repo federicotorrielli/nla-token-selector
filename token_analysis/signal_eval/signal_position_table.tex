@@ -1,0 +1,32 @@
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.1}
+\caption{Sequence position against prediction, over the fourteen cells. \emph{Correlation} is the Spearman correlation with the normalized token index, given as its range. \emph{Within structure} recomputes the AUROC inside strata of segment, chat role and position bin. Both AUROC columns are direction adjusted means.}
+\label{tab:signal-position}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+signal & Correlation & Pooled & Within structure \\
+\midrule
+\multicolumn{4}{l}{\emph{predictive distribution}} \\
+\texttt{surprisal} & \(-0.50\) to \(+0.07\) & \cellcolor[HTML]{DBE3EB}\(0.546\) & \cellcolor[HTML]{CCDAEA}\(0.581\) \\
+\texttt{entropy} & \(-0.49\) to \(+0.07\) & \cellcolor[HTML]{CAD9EA}\(0.585\) & \cellcolor[HTML]{C1D3E9}\(0.607\) \\
+\texttt{varentropy} & \(-0.59\) to \(+0.05\) & \cellcolor[HTML]{C9D8EA}\(0.589\) & \cellcolor[HTML]{C0D2E9}\(0.609\) \\
+\texttt{temporal\_kl} & \(-0.12\) to \(+0.35\) & \cellcolor[HTML]{D0DCEA}\(0.572\) & \cellcolor[HTML]{D4DEEB}\(0.564\) \\
+\addlinespace
+\multicolumn{4}{l}{\emph{attention pattern}} \\
+\texttt{lookback\_ratio} & \(-0.90\) to \(-0.24\) & \cellcolor[HTML]{DCE3EB}\(0.545\) & \cellcolor[HTML]{D0DCEA}\(0.573\) \\
+\texttt{sink\_drain} & \(+0.50\) to \(+0.87\) & \cellcolor[HTML]{CDDAEA}\(0.580\) & \cellcolor[HTML]{B9CEE9}\(0.626\) \\
+\texttt{head\_disagreement} & \(+0.50\) to \(+0.86\) & \cellcolor[HTML]{CBD9EA}\(0.584\) & \cellcolor[HTML]{C0D2E9}\(0.608\) \\
+\texttt{w} & \(+0.67\) to \(+0.97\) & \cellcolor[HTML]{D0DCEA}\(0.572\) & \cellcolor[HTML]{D8E1EB}\(0.554\) \\
+\addlinespace
+\multicolumn{4}{l}{\emph{activation}} \\
+\texttt{resid\_jump} & \(-0.41\) to \(+0.02\) & \cellcolor[HTML]{CCDAEA}\(0.581\) & \cellcolor[HTML]{C6D6EA}\(0.596\) \\
+\texttt{norm\_ratio} & \(-0.41\) to \(+0.66\) & \cellcolor[HTML]{BCD0E9}\(0.618\) & \cellcolor[HTML]{BFD1E9}\(0.612\) \\
+\texttt{peak\_ratio} & \(-0.37\) to \(+0.27\) & \cellcolor[HTML]{B9CEE9}\(0.624\) & \cellcolor[HTML]{B8CDE9}\(0.628\) \\
+\texttt{dominant\_mass} & \(-0.27\) to \(+0.25\) & \cellcolor[HTML]{B0C8E8}\(0.647\) & \cellcolor[HTML]{AEC7E8}\(0.651\) \\
+\texttt{resid\_jump\_nla} & \(-0.31\) to \(+0.39\) & \cellcolor[HTML]{B5CCE8}\(0.634\) & \cellcolor[HTML]{BED1E9}\(0.613\) \\
+\bottomrule
+\end{tabular}
+\end{table}

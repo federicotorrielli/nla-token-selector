@@ -68,7 +68,8 @@ SPECS: dict[str, dict[int, dict]] = {
     "full_aurocs_dataset_shared": {3: AUROC, 4: AUROC, 5: AUROC},
 }
 PLAIN = ["signals"]                      # definitions, nothing to grade
-GENERATED = ["signal_auroc", "signal_controls"]   # graded by signal_eval.py
+GENERATED = ["signal_auroc", "signal_controls",   # graded by signal_eval.py
+             "signal_direction", "signal_position"]
 
 
 def main(argv=None) -> int:

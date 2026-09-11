@@ -1,0 +1,34 @@
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.1}
+\caption{Direction of every signal in every cell. \texttt{H} means larger values select on-task positions and \texttt{L} means smaller values do. \emph{Agreeing} counts the datasets whose models share one direction; \emph{minority} counts the cells against the signal's own majority.}
+\label{tab:signal-direction}
+\begin{tabular}{@{}lccccccccccccccrr@{}}
+\toprule
+ & \multicolumn{4}{c}{OpenPromptInjection} & \multicolumn{4}{c}{Tensor Trust} & \multicolumn{2}{c}{Liars' Bench} & \multicolumn{4}{c}{Taboo organisms} & & \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-11}\cmidrule(lr){12-15}
+signal & q7 & g12 & g27 & l70 & q7 & g12 & g27 & l70 & g27 & l70 & q7 & g12 & g27 & l70 & Agreeing & Minority \\
+\midrule
+\multicolumn{17}{l}{\emph{predictive distribution}} \\
+\texttt{surprisal} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & 2/4 & 2 \\
+\texttt{entropy} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & 4/4 & 4 \\
+\texttt{varentropy} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & 3/4 & 5 \\
+\texttt{temporal\_kl} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{L} & \texttt{H} & 2/4 & 5 \\
+\addlinespace
+\multicolumn{17}{l}{\emph{attention pattern}} \\
+\texttt{lookback\_ratio} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{H} & 2/4 & 5 \\
+\texttt{sink\_drain} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{H} & 3/4 & 4 \\
+\texttt{head\_disagreement} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & 1/4 & 7 \\
+\texttt{w} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & 2/4 & 3 \\
+\addlinespace
+\multicolumn{17}{l}{\emph{activation}} \\
+\texttt{resid\_jump} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & 3/4 & 1 \\
+\texttt{norm\_ratio} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & 1/4 & 6 \\
+\texttt{peak\_ratio} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & 3/4 & 6 \\
+\texttt{dominant\_mass} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & 3/4 & 7 \\
+\texttt{resid\_jump\_nla} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{H} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{L} & \texttt{H} & 1/4 & 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
