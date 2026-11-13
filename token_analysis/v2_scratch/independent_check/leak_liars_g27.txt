@@ -1,0 +1,5 @@
+liars g27 free positions/case mean 480.5145 frac cases>=20 0.461
+liars g27 leakbal_rand5 pooled 0.587 within 0.5 coverage 0.99
+liars g27 leakbal_last5 pooled 0.607 within 0.526 coverage 0.99
+liars g27 leakbal_rand20 pooled 0.53 within 0.415 coverage 0.46
+liars g27 leakbal_last20 pooled 0.546 within 0.399 coverage 0.46

@@ -1,0 +1,216 @@
+joblib.externals.loky.process_executor._RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 490, in _process_worker
+    r = call_item()
+        ^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 291, in __call__
+    return self.fn(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 607, in __call__
+    return [func(*args, **kwargs) for func, args, kwargs in self.items]
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 16, in job
+    w = {t: __import__('sklearn.metrics', fromlist=['x']).roc_auc_score(yb[tgt == t], oof[tgt == t]) for t in np.unique(tgt)}
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/metrics/_ranking.py", line 710, in roc_auc_score
+    y_score = check_array(y_score, ensure_2d=False)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 1087, in check_array
+    _assert_all_finite(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 137, in _assert_all_finite
+    _assert_all_finite_element_wise(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 186, in _assert_all_finite_element_wise
+    raise ValueError(msg_err)
+ValueError: Input contains NaN.
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 18, in <module>
+    for out in Parallel(n_jobs=13)(delayed(job)(p) for p in PARTS):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 2072, in __call__
+    return output if self.return_generator else list(output)
+                                                ^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1682, in _get_outputs
+    yield from self._retrieve()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1784, in _retrieve
+    self._raise_error_fast()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1859, in _raise_error_fast
+    error_job.get_result(self.timeout)
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 758, in get_result
+    return self._return_or_raise()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 773, in _return_or_raise
+    raise self._result
+ValueError: Input contains NaN.
+joblib.externals.loky.process_executor._RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 490, in _process_worker
+    r = call_item()
+        ^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 291, in __call__
+    return self.fn(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 607, in __call__
+    return [func(*args, **kwargs) for func, args, kwargs in self.items]
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 16, in job
+    w = {t: __import__('sklearn.metrics', fromlist=['x']).roc_auc_score(yb[tgt == t], oof[tgt == t]) for t in np.unique(tgt)}
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/metrics/_ranking.py", line 710, in roc_auc_score
+    y_score = check_array(y_score, ensure_2d=False)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 1087, in check_array
+    _assert_all_finite(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 137, in _assert_all_finite
+    _assert_all_finite_element_wise(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 186, in _assert_all_finite_element_wise
+    raise ValueError(msg_err)
+ValueError: Input contains NaN.
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 18, in <module>
+    for out in Parallel(n_jobs=13)(delayed(job)(p) for p in PARTS):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 2072, in __call__
+    return output if self.return_generator else list(output)
+                                                ^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1682, in _get_outputs
+    yield from self._retrieve()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1784, in _retrieve
+    self._raise_error_fast()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1859, in _raise_error_fast
+    error_job.get_result(self.timeout)
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 758, in get_result
+    return self._return_or_raise()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 773, in _return_or_raise
+    raise self._result
+ValueError: Input contains NaN.
+joblib.externals.loky.process_executor._RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 490, in _process_worker
+    r = call_item()
+        ^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 291, in __call__
+    return self.fn(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 607, in __call__
+    return [func(*args, **kwargs) for func, args, kwargs in self.items]
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 16, in job
+    w = {t: __import__('sklearn.metrics', fromlist=['x']).roc_auc_score(yb[tgt == t], oof[tgt == t]) for t in np.unique(tgt)}
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/metrics/_ranking.py", line 710, in roc_auc_score
+    y_score = check_array(y_score, ensure_2d=False)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 1087, in check_array
+    _assert_all_finite(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 137, in _assert_all_finite
+    _assert_all_finite_element_wise(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 186, in _assert_all_finite_element_wise
+    raise ValueError(msg_err)
+ValueError: Input contains NaN.
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 18, in <module>
+    for out in Parallel(n_jobs=13)(delayed(job)(p) for p in PARTS):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 2072, in __call__
+    return output if self.return_generator else list(output)
+                                                ^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1682, in _get_outputs
+    yield from self._retrieve()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1784, in _retrieve
+    self._raise_error_fast()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1859, in _raise_error_fast
+    error_job.get_result(self.timeout)
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 758, in get_result
+    return self._return_or_raise()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 773, in _return_or_raise
+    raise self._result
+ValueError: Input contains NaN.
+joblib.externals.loky.process_executor._RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 490, in _process_worker
+    r = call_item()
+        ^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/externals/loky/process_executor.py", line 291, in __call__
+    return self.fn(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 607, in __call__
+    return [func(*args, **kwargs) for func, args, kwargs in self.items]
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 16, in job
+    w = {t: __import__('sklearn.metrics', fromlist=['x']).roc_auc_score(yb[tgt == t], oof[tgt == t]) for t in np.unique(tgt)}
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/metrics/_ranking.py", line 710, in roc_auc_score
+    y_score = check_array(y_score, ensure_2d=False)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 1087, in check_array
+    _assert_all_finite(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 137, in _assert_all_finite
+    _assert_all_finite_element_wise(
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py", line 186, in _assert_all_finite_element_wise
+    raise ValueError(msg_err)
+ValueError: Input contains NaN.
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/token_analysis/v2_scratch/independent_check/within_opi.py", line 18, in <module>
+    for out in Parallel(n_jobs=13)(delayed(job)(p) for p in PARTS):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 2072, in __call__
+    return output if self.return_generator else list(output)
+                                                ^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1682, in _get_outputs
+    yield from self._retrieve()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1784, in _retrieve
+    self._raise_error_fast()
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 1859, in _raise_error_fast
+    error_job.get_result(self.timeout)
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 758, in get_result
+    return self._return_or_raise()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/DATA/Nimbus/Projects/Research/nla-token-selector/.venv/lib/python3.12/site-packages/joblib/parallel.py", line 773, in _return_or_raise
+    raise self._result
+ValueError: Input contains NaN.
+opi g12 label-free positions per case: mean 66.0875 min 27 cases with >=5: 1.0
+opi g27 label-free positions per case: mean 66.0875 min 27 cases with >=5: 1.0
+opistart g12 label-free positions per case: mean 27.1 min 22 cases with >=5: 1.0
+opistart l70 label-free positions per case: mean 52.4 min 47 cases with >=5: 1.0
+opimiddle g12 label-free positions per case: mean 45.075 min 24 cases with >=5: 1.0
+opimiddle q7 label-free positions per case: mean 49.0375 min 27 cases with >=5: 1.0
+opihistory g27 label-free positions per case: mean 53.0175 min 22 cases with >=5: 1.0
+opihistory l70 label-free positions per case: mean 71.3825 min 47 cases with >=5: 1.0
+liars g27 label-free positions per case: mean 494.0455 min 4 cases with >=5: 0.9905
+liars l70 label-free positions per case: mean 165.784 min 26 cases with >=5: 1.0
+tt g12 label-free positions per case: mean 13.529792746113989 min 3 cases with >=5: 0.8283678756476683
+tt q7 label-free positions per case: mean 12.404639175257731 min 2 cases with >=5: 0.7564432989690721

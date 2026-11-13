@@ -287,33 +287,85 @@ def score_all(model, tokenizer, device, captured, ids: list[int], a_bound: int,
 # Per-kind case builders — each yields                                        #
 #   dict(case_id, mode, ids, regions, labels, probe, a_bound)                 #
 # --------------------------------------------------------------------------- #
+def _last_user_view(tokenizer, msgs: list[dict]):
+    """`signals_injection._user_token_view` for a message list that may hold
+    earlier turns: (ids, [(tok_idx, char_start, char_end)]) for the tokens inside
+    the LAST user message, in user-local coordinates. Identical to the original
+    for [system, user]."""
+    user = msgs[-1]["content"]
+    rendered = tokenizer.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
+    u0 = rendered.rfind(user)
+    if u0 < 0:  # templates that trim content (Gemma)
+        pos = rendered.rfind(user.strip())
+        assert pos >= 0, "user content not found verbatim in rendered template"
+        u0 = pos - (len(user) - len(user.lstrip()))
+    enc = tokenizer(rendered, add_special_tokens=False, return_offsets_mapping=True)
+    view = [(ti, s - u0, e - u0) for ti, (s, e) in enumerate(enc["offset_mapping"])
+            if e > s and s >= u0 and e <= u0 + len(user)]
+    return enc["input_ids"], view, rendered, enc["offset_mapping"]
+
+
+def _opi_history(path: Path) -> dict[str, list[str]]:
+    """case id -> earlier user messages (moved-threat variant with earlier turns)."""
+    out = {}
+    for ln in path.read_text().splitlines():
+        if ln.strip():
+            r = json.loads(ln)
+            if r.get("history"):
+                out[r["id"]] = r["history"]
+    return out
+
+
 def _iter_opi(args, tokenizer):
     import random
 
-    from signals_injection import _labels_for_view, _user_token_view
     from signals_injection import load_cases as load_opi_cases
 
     allc = load_opi_cases(Path(args.cases), None)
+    history = _opi_history(Path(args.cases))
     if args.max_cases and len(allc) > args.max_cases:
         cases = random.Random(0).sample(allc, args.max_cases)  # ORIGINAL run's sample
     else:
         cases = allc
-    for c in cases:
+    cases = [c for c in cases if c.id not in args.done]
+    for start in range(0, len(cases), args.gen_batch):
+        chunk = cases[start:start + args.gen_batch]
+        convs = _opi_conversations(chunk, history, args.reply_batch_fn)
+        yield from _opi_cases(chunk, convs, tokenizer)
+
+
+def _opi_conversations(chunk, history, reply_batch_fn) -> list[list[dict]]:
+    """System + earlier turns for each case. Earlier turns get the audited model's
+    own greedy replies, generated turn by turn in one batch over the chunk."""
+    convs = [[{"role": "system", "content": c.system}] for c in chunk]
+    turns = max((len(history.get(c.id, [])) for c in chunk), default=0)
+    for t in range(turns):
+        active = [i for i, c in enumerate(chunk) if len(history.get(c.id, [])) > t]
+        for i in active:
+            convs[i].append({"role": "user", "content": history[chunk[i].id][t]})
+        replies = reply_batch_fn([convs[i] for i in active])
+        for i, reply in zip(active, replies, strict=True):
+            convs[i].append({"role": "assistant", "content": reply})
+    return convs
+
+
+def _opi_cases(chunk, convs, tokenizer):
+    from signals_injection import _labels_for_view
+
+    for c, conv in zip(chunk, convs, strict=True):
+        msgs = [*conv, {"role": "user", "content": c.user_full}]
         try:
-            ids, view = _user_token_view(tokenizer, c.system, c.user_full)
+            ids, view, rendered, offsets = _last_user_view(tokenizer, msgs)
         except (AssertionError, ValueError):
             continue
         if not view:
             continue
         vlabels = _labels_for_view(view, c.inj_start, c.inj_end)
-        msgs = [{"role": "system", "content": c.system},
-                {"role": "user", "content": c.user_full}]
-        rendered = tokenizer.apply_chat_template(msgs, add_generation_prompt=True,
-                                                 tokenize=False)
-        enc = tokenizer(rendered, add_special_tokens=False, return_offsets_mapping=True)
         regions = ["template"] * len(ids)
-        _mark_span(regions, enc["offset_mapping"], _locate_spans(rendered, [c.system])[0],
-                   "system")
+        spans = _locate_spans(rendered, [m["content"] for m in msgs[:-1]])
+        for m, span in zip(msgs[:-1], spans, strict=True):
+            role = "assistant_prior" if m["role"] == "assistant" else m["role"]
+            _mark_span(regions, offsets, span, role)
         labels = [0] * len(ids)
         probe = [-1] * len(ids)
         for k, (ti, _cs, _ce) in enumerate(view):
@@ -387,6 +439,72 @@ def _iter_taboo_word(args, tokenizer, word: str, stored):
             print(f"  skip {case_id}: stored tokens do not round-trip", flush=True)
             continue
         yield got
+
+
+def _case_seed(case_id: str) -> int:
+    """Stable sampling seed per case, so a regenerated corpus is reproducible."""
+    import hashlib
+
+    return int.from_bytes(hashlib.blake2b(case_id.encode(), digest_size=4).digest(), "little")
+
+
+def _generate_batch(tokenizer, model, device, conversations: list[list[dict]],
+                    max_new: int, seed: int | None = None, temperature: float = 1.0):
+    """Replies to every conversation in ONE left-padded generate call: greedy when
+    `seed` is None, else temperature sampling seeded once for the batch. Each reply
+    is cut at its first special token."""
+    import torch
+
+    texts = [tokenizer.apply_chat_template(c, add_generation_prompt=True, tokenize=False)
+             for c in conversations]
+    side, tokenizer.padding_side = tokenizer.padding_side, "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    enc = tokenizer(texts, return_tensors="pt", padding=True,
+                    add_special_tokens=False).to(device)
+    tokenizer.padding_side = side
+    kw = dict(max_new_tokens=max_new, pad_token_id=tokenizer.pad_token_id)
+    if seed is None:
+        kw |= dict(do_sample=False)
+    else:
+        torch.manual_seed(seed)
+        kw |= dict(do_sample=True, temperature=temperature)
+    with torch.no_grad():
+        gen = model.generate(**enc, **kw)[:, enc["input_ids"].shape[1]:].tolist()
+    specials = set(tokenizer.all_special_ids)
+    replies = []
+    for row in gen:
+        reply = []
+        for i in row:
+            if i in specials:
+                break
+            reply.append(i)
+        replies.append(reply)
+    return replies
+
+
+def _iter_generated(args, tokenizer, device, model, name, prompts, label, mode):
+    """`<name>__p<prompt>__s<sample>` cases with freshly generated replies. Sample 0
+    of every prompt is greedy; the other samples are drawn in one batch seeded by
+    `name`, so a rerun of the same adapter reproduces the corpus."""
+    todo = [(pj, s) for pj in range(len(prompts)) for s in range(args.samples)
+            if f"{name}__p{pj}__s{s}" not in args.done]
+    greedy = [(pj, s) for pj, s in todo if s == 0]
+    sampled = [(pj, s) for pj, s in todo if s > 0]
+    for group, seed in ((greedy, None), (sampled, _case_seed(name))):
+        if not group:
+            continue
+        convs = [build_messages(tokenizer, None, prompts[pj]) for pj, _ in group]
+        replies = _generate_batch(tokenizer, model, device, convs, args.max_new_tokens,
+                                  seed, args.temperature)
+        for (pj, s), reply in zip(group, replies, strict=True):
+            if not reply:
+                continue
+            got = _stored_reply_case(tokenizer, None, prompts[pj],
+                                     tokenizer.convert_ids_to_tokens(reply), label,
+                                     f"{name}__p{pj}__s{s}", mode, old_tok_cap=0)
+            if got is not None:
+                yield got
 
 
 def _iter_liars(args, tokenizer):
@@ -469,6 +587,13 @@ def run(args: argparse.Namespace) -> int:
 
     model, tokenizer, device = load_base(args.base_model, args.dtype)
     handle, captured = make_hook(model, args.layer)
+    args.done = done
+
+    def reply_batch_fn(convs):  # greedy replies for OPI earlier turns, one batch
+        ids = _generate_batch(tokenizer, model, device, convs, args.history_max_new)
+        return [tokenizer.decode(r, skip_special_tokens=True).strip() for r in ids]
+
+    args.reply_batch_fn = reply_batch_fn
     writer = ShardWriter(out_dir, args.d_model, signals, args.rows_per_shard,
                          next_shard=next_shard)
 
@@ -510,8 +635,8 @@ def run(args: argparse.Namespace) -> int:
 
     if args.kind == "taboo":
         from peft import PeftModel
-        from taboo import WORDS, adapter_id
-        stored = _stored_responses(Path(args.old_corpus))
+        from taboo import PROMPTS, WORDS, adapter_id
+        stored = _stored_responses(Path(args.old_corpus)) if args.old_corpus else None
         words = args.words or list(WORDS)
         peft = PeftModel.from_pretrained(model, adapter_id(args.short, words[0]),
                                          adapter_name=words[0])
@@ -519,8 +644,29 @@ def run(args: argparse.Namespace) -> int:
             peft.load_adapter(adapter_id(args.short, w), adapter_name=w)
         for w in words:
             peft.set_adapter(w)
-            n = process(_iter_taboo_word(args, tokenizer, w, stored), peft)
+            cases = (_iter_taboo_word(args, tokenizer, w, stored) if stored is not None
+                     else _iter_generated(args, tokenizer, device, peft, w, PROMPTS, 1,
+                                          "taboo"))
+            n = process(cases, peft)
             print(f"  word {w}: {n} cases", flush=True)
+    elif args.kind == "misalign":
+        from peft import PeftModel
+        from taboo import MISALIGNED, MISALIGNED_PROMPTS, misaligned_adapter_id
+        names = list(MISALIGNED[args.short])
+        peft = PeftModel.from_pretrained(model, misaligned_adapter_id(args.short, names[0]),
+                                         adapter_name=names[0])
+        for a in names[1:]:
+            peft.load_adapter(misaligned_adapter_id(args.short, a), adapter_name=a)
+        for a in names:
+            peft.set_adapter(a)
+            n = process(_iter_generated(args, tokenizer, device, peft, a,
+                                        MISALIGNED_PROMPTS, 1, "misalign"), peft)
+            print(f"  adapter {a}: {n} cases", flush=True)
+        # control: the same prompts through the base model, label 0
+        with peft.disable_adapter():
+            n = process(_iter_generated(args, tokenizer, device, peft, "base",
+                                        MISALIGNED_PROMPTS, 0, "misalign"), peft)
+        print(f"  base control: {n} cases", flush=True)
     else:
         iters = {"opi": _iter_opi, "tt": _iter_tt, "liars": _iter_liars,
                  "hand": _iter_hand}
@@ -589,6 +735,23 @@ def selftest() -> int:
 
     # taboo case-id parse
     check("taboo case parse", _taboo_case("moon__p2__s5") == ("moon", 2))
+    check("case seed is stable and case specific",
+          _case_seed("moon__p0__s1") == _case_seed("moon__p0__s1")
+          and _case_seed("moon__p0__s1") != _case_seed("moon__p0__s2"))
+
+    # last-user view: only the final user message, in user-local coordinates,
+    # even when an earlier user turn repeats the same text
+    class _HistTok(_StubTok):
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
+            return self._rendered
+
+    rendered = "<u>DATA</u><a>ok</a><u>DATA x</u><a>"
+    htok = _HistTok(rendered, [(0, 3), (3, 7), (7, 11), (11, 14), (14, 16), (16, 20),
+                               (20, 23), (23, 27), (27, 29), (29, 33), (33, 36)])
+    msgs = [{"role": "user", "content": "DATA"}, {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "DATA x"}]
+    _ids, view, _r, _o = _last_user_view(htok, msgs)
+    check("last-user view skips the earlier turn", view == [(7, 0, 4), (8, 4, 6)])
 
     # tail budget: only replies stored at the old cap get a continuation, up to
     # the ORIGINAL generation budget
@@ -651,7 +814,7 @@ def _parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--selftest", action="store_true")
-    p.add_argument("--kind", choices=["opi", "tt", "taboo", "liars", "hand"])
+    p.add_argument("--kind", choices=["opi", "tt", "taboo", "liars", "hand", "misalign"])
     p.add_argument("--base-model", default="Qwen/Qwen2.5-7B-Instruct")
     p.add_argument("--short", default="q7", choices=["q7", "g12", "g27", "l70"],
                    help="taboo only: which adapter family")
@@ -672,6 +835,16 @@ def _parse_args(argv):
     p.add_argument("--per-class", type=int, default=1000, help="liars")
     p.add_argument("--seed", type=int, default=0, help="liars sample seed")
     p.add_argument("--words", nargs="+", default=None, help="taboo word subset")
+    p.add_argument("--samples", type=int, default=8,
+                   help="taboo without --old-corpus, misalign: replies per prompt "
+                        "(sample 0 greedy, the rest seeded per case)")
+    p.add_argument("--temperature", type=float, default=0.7)
+    p.add_argument("--max-new-tokens", type=int, default=48,
+                   help="generated reply budget (48 = the original taboo budget)")
+    p.add_argument("--history-max-new", type=int, default=32,
+                   help="opi with earlier turns: reply budget per earlier turn")
+    p.add_argument("--gen-batch", type=int, default=64,
+                   help="opi with earlier turns: cases whose turns generate in one batch")
     p.add_argument("--attn-max-len", type=int, default=2600)
     p.add_argument("--rows-per-shard", type=int, default=20000)
     p.add_argument("--limit", type=int, default=None, help="cases per run (smoke)")
@@ -689,8 +862,9 @@ def _parse_args(argv):
         }
         if args.cases is None and args.kind in defaults:
             args.cases = str(defaults[args.kind])
-        if args.kind in ("tt", "taboo") and not args.old_corpus:
-            p.error(f"--old-corpus is required for --kind {args.kind}")
+        # taboo without an old corpus generates fresh seeded replies
+        if args.kind == "tt" and not args.old_corpus:
+            p.error("--old-corpus is required for --kind tt")
         if args.kind == "liars" and (not args.datasets or not args.model_tag):
             p.error("--datasets and --model-tag are required for --kind liars")
     return args

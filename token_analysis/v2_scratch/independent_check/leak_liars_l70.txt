@@ -1,0 +1,5 @@
+liars l70 free positions/case mean 132.256 frac cases>=20 1.0
+liars l70 leakbal_rand5 pooled 0.634 within 0.412 coverage 1.0
+liars l70 leakbal_last5 pooled 0.713 within 0.485 coverage 1.0
+liars l70 leakbal_rand20 pooled 0.7 within 0.494 coverage 1.0
+liars l70 leakbal_last20 pooled 0.72 within 0.504 coverage 1.0

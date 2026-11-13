@@ -29,7 +29,11 @@ import polars as pl
 BR = Path("results/bridge")
 KINDS = {"hand": ["q7", "g12", "g27", "l70"], "opi": ["q7", "g12", "g27", "l70"],
          "tt": ["q7", "g12", "g27", "l70"], "taboo": ["q7", "g12", "g27", "l70"],
-         "liars": ["g27", "l70"]}
+         "liars": ["g27", "l70"],
+         # review experiments: moved OPI injection, all taboo words, misalignment
+         "opistart": ["q7", "g12", "g27", "l70"], "opimiddle": ["q7", "g12", "g27", "l70"],
+         "opihistory": ["q7", "g12", "g27", "l70"], "taboo20": ["q7", "g12", "g27", "l70"],
+         "misalign": ["q7"]}
 # written by all_tokens_eval.py spike
 SPIKE_COLS = ["dominant_mass", "peak_ratio", "act_norm", "norm_ratio",
                "resid_jump_nla"]

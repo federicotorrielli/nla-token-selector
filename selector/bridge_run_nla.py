@@ -50,7 +50,8 @@ class EngineDecoder:
     `tokenizer_manager.generate_request`, and that dataclass does carry it."""
 
     def __init__(self, av_repo: str, *, mem_fraction: float, inflight: int,
-                 max_new_tokens: int, max_running_requests: int | None = None):
+                 max_new_tokens: int, max_running_requests: int | None = None,
+                 embed_override: bool = False):
         import sglang as sgl
         import torch
         from huggingface_hub import snapshot_download
@@ -68,29 +69,56 @@ class EngineDecoder:
         if max_running_requests:
             kw["max_running_requests"] = max_running_requests
         self.llm = sgl.Engine(**kw)
+        self.embed_override = embed_override
+        if embed_override:
+            self._init_override()
 
-    def decode(self, activations: list) -> list[str]:
+    def _init_override(self) -> None:
+        """Token ids of the canonical prompt plus ONE override row, instead of the
+        whole [T, d] embedding matrix as a Python list. SGLang rebuilds that list
+        into a tensor on its single scheduler thread, which caps a GPU at ~15-30%
+        utilization. The override row is written into the embedding of the
+        injection token before the forward, so for an architecture whose embedding
+        scale is 1 (Qwen, Llama) the model sees exactly the same input. Gemma-3
+        scales its embeddings by sqrt(d), so it keeps the full-matrix path."""
+        from nla_token_selector._nla_inference import _act_ids
+
+        cfg = self.av.cfg
+        assert float(self.av.embed_scale) == 1.0, "embed override needs embed_scale 1"
+        content = cfg.actor_prompt_template.format(injection_char=cfg.injection_char)
+        self.ids = list(_act_ids(self.av.tokenizer, content))
+        assert self.ids.count(cfg.injection_token_id) == 1, "override needs one injection site"
+        self.inj_pos = self.ids.index(cfg.injection_token_id)
+        self.inj_scale = cfg.injection_scale
+
+    def decode(self, activations: list, embed_override: bool | None = None) -> list[str]:
         """Explanations for a list of activation vectors, order preserved."""
         import asyncio
         from concurrent.futures import ThreadPoolExecutor
 
+        from sglang.srt.managers.embed_types import PositionalEmbeds
         from sglang.srt.managers.io_struct import GenerateReqInput
 
-        from nla_token_selector._nla_inference import EXPLANATION_RE
+        from nla_token_selector._nla_inference import EXPLANATION_RE, normalize_activation
 
+        override = self.embed_override if embed_override is None else embed_override
         sp = {"temperature": 0.0, "max_new_tokens": self.max_new_tokens,
               "skip_special_tokens": False}
 
         def build(v):
-            return self.av._build_embeds(self.torch.as_tensor(v),
-                                         prompt_content=None)[0].tolist()
+            if override:
+                vec = normalize_activation(self.torch.as_tensor(v).float().view(1, -1),
+                                           self.inj_scale)
+                return dict(input_ids=list(self.ids), positional_embed_overrides=
+                            PositionalEmbeds(embeds=vec, positions=[self.inj_pos]))
+            return dict(input_embeds=self.av._build_embeds(
+                self.torch.as_tensor(v), prompt_content=None)[0].tolist())
 
         async def one(sem, pool, v):
             async with sem:
                 loop = asyncio.get_running_loop()
                 payload = await loop.run_in_executor(pool, build, v)
-                obj = GenerateReqInput(input_embeds=payload,
-                                       sampling_params=dict(sp))
+                obj = GenerateReqInput(**payload, sampling_params=dict(sp))
                 gen = self.llm.tokenizer_manager.generate_request(obj, None)
                 return await gen.__anext__()
 
@@ -168,7 +196,12 @@ def _run_dir_engine(args) -> int:
 
     from nla_token_selector.settings import Settings
 
-    shards = _my_shards(Path(args.corpus), args)
+    # --row-partition splits by position instead of by shard, so a corpus with
+    # few shards still feeds many engines. Each worker then writes its own file
+    # per shard (`shard-N.wK.parquet`); readers glob the directory.
+    rows_mine = args.row_partition and args.shard_stride > 1
+    shards = (sorted(Path(args.corpus).glob("shard-*.parquet")) if rows_mine
+              else _my_shards(Path(args.corpus), args))
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -183,11 +216,14 @@ def _run_dir_engine(args) -> int:
     # Check for work BEFORE loading the AV: on a resumed run most kinds are
     # already complete, and loading a 70B model per worker per kind just to
     # find nothing to do costs minutes each.
+    def mine(pid: int) -> bool:
+        return not rows_mine or pid % args.shard_stride == args.shard_offset
+
     pending = 0
     for shard in shards:
         ids = (pl.scan_parquet(str(shard)).select("position_id").collect()
                ["position_id"].to_list())
-        pending += sum(1 for p in ids if int(p) not in done)
+        pending += sum(1 for p in ids if int(p) not in done and mine(int(p)))
         if pending:
             break
     if not pending:
@@ -196,18 +232,21 @@ def _run_dir_engine(args) -> int:
 
     dec = EngineDecoder(Settings().model.av_repo, mem_fraction=args.mem_fraction,
                         inflight=args.inflight, max_new_tokens=args.max_new_tokens,
-                        max_running_requests=args.max_running_requests)
+                        max_running_requests=args.max_running_requests,
+                        embed_override=args.embed_override)
     budget = args.limit
     try:
         for shard in shards:
             df = pl.read_parquet(shard)
             todo_rows = [r for r in df.iter_rows(named=True)
-                         if int(r["position_id"]) not in done]
+                         if int(r["position_id"]) not in done
+                         and mine(int(r["position_id"]))]
             if budget is not None:
                 todo_rows = todo_rows[:budget]
             if not todo_rows:
                 continue
-            outp = out_dir / shard.name
+            outp = out_dir / (f"{shard.stem}.w{args.shard_offset:02d}.parquet"
+                              if rows_mine else shard.name)
             rows = pl.read_parquet(outp).to_dicts() if outp.exists() else []
             print(f"[{shard.name}] {len(todo_rows)} to run, "
                   f"inflight={args.inflight}", flush=True)
@@ -340,6 +379,11 @@ def main(argv=None) -> int:
                     help="number of parallel workers (one per GPU)")
     ap.add_argument("--shard-offset", type=int, default=0,
                     help="this worker's index in [0, stride)")
+    ap.add_argument("--embed-override", action="store_true",
+                    help="--engine: send token ids + one override row instead of the "
+                         "full embedding matrix (Qwen/Llama only; see _init_override)")
+    ap.add_argument("--row-partition", action="store_true",
+                    help="split positions (position_id %% stride), not shards")
     args = ap.parse_args(argv)
     if args.selftest:
         return _selftest()

@@ -30,7 +30,11 @@ BR = Path("results/bridge")
 CSVS = Path("paper_results") / "bridge"
 KINDS = {"hand": ["q7", "g12", "g27", "l70"], "opi": ["q7", "g12", "g27", "l70"],
          "tt": ["q7", "g12", "g27", "l70"], "taboo": ["q7", "g12", "g27", "l70"],
-         "liars": ["g27", "l70"]}
+         "liars": ["g27", "l70"],
+         # review experiments: moved OPI injection, all taboo words, misalignment
+         "opistart": ["q7", "g12", "g27", "l70"], "opimiddle": ["q7", "g12", "g27", "l70"],
+         "opihistory": ["q7", "g12", "g27", "l70"], "taboo20": ["q7", "g12", "g27", "l70"],
+         "misalign": ["q7"]}
 
 SPIKE_FACTOR = 10.0          # spike channels tower this far over the typical one
 SAMPLE_ROWS = 20_000
@@ -78,12 +82,16 @@ def spike_stats(acts: np.ndarray, spike: np.ndarray) -> dict[str, np.ndarray]:
     }
 
 
-def run_spike() -> None:
+def run_spike(kinds: list[str] | None = None) -> None:
     for kind, shorts in KINDS.items():
+        if kinds and kind not in kinds:
+            continue
         for short in shorts:
             src = BR / f"all_{kind}_{short}_corpus"
             shards = sorted(src.glob("*.parquet")) if src.is_dir() else []
-            if not shards:
+            out = BR / f"all_{kind}_{short}_spike"
+            # skip before sampling: the sample reads every activation shard
+            if not shards or all((out / s.name).exists() for s in shards):
                 continue
             take = max(1, SAMPLE_ROWS // len(shards))
             sample = np.concatenate([_acts(pl.read_parquet(s).head(take)) for s in shards])
@@ -389,11 +397,12 @@ def main() -> None:
     ap.add_argument("--signal", default="sink_drain")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--kinds", nargs="+", default=None, help="spike: only these kinds")
     args = ap.parse_args()
     if args.selftest:
         return _selftest()
     if args.cmd == "spike":
-        return run_spike()
+        return run_spike(args.kinds)
     if args.cmd == "position":
         return run_position(args.signal)
     if args.cmd == "pool":
